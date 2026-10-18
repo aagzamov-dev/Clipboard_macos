@@ -31,7 +31,7 @@ import CoreGraphics
     }
     func paste(_ snapshot: ClipboardSnapshot, enabled: Bool) async throws -> PasteOutcome {
         if testMode { try write(snapshot); return .copied }
-        guard enabled, CGPreflightPostEventAccess() else { return .permissionRequired }
+        guard enabled, PasteAccess.isGranted else { return .permissionRequired }
         guard let target = previousApplication, !target.isTerminated else { return .targetUnavailable }
         guard target.activate(options: []) else { return .targetUnavailable }
         let deadline = ContinuousClock.now + .seconds(1)
@@ -48,5 +48,14 @@ import CoreGraphics
         guard NSPasteboard.general.changeCount == generation, NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier else { return .targetUnavailable }
         down.post(tap: .cghidEventTap); up.post(tap: .cghidEventTap)
         return .pasteEventSent
+    }
+}
+
+@MainActor enum PasteAccess {
+    static var isGranted: Bool { CGPreflightPostEventAccess() }
+    static func request() { _ = CGRequestPostEventAccess() }
+    static func openSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
+        if !NSWorkspace.shared.open(url), let fallback = URL(string: "x-apple.systempreferences:com.apple.preference.security") { NSWorkspace.shared.open(fallback) }
     }
 }

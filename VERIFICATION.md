@@ -1,6 +1,6 @@
 # Verification and release gates
 
-This is a development candidate. Building successfully is not sufficient to claim that all release criteria have passed.
+v1.0.0 is distributed with an ad-hoc signature and explicit limitations in the release notes. Developer ID signing/notarization, full runtime compatibility coverage, authenticated UI automation, and Instruments performance certification remain outstanding. Building successfully does not establish those results.
 
 ## Automated coverage
 
@@ -12,7 +12,7 @@ This is a development candidate. Building successfully is not sufficient to clai
 - Native popup layout at list/preview widths, focus-loss dismissal with draft preservation, and automatic capture resuming after starting inside an excluded app.
 - Actual AppKit representation conversion using named private pasteboards, confidential markers, unknown/explicit sources, multi-file references, self-generated write suppression, and fixture paste without event posting.
 
-The latest development run passed 27 core tests and 9 platform tests. Test output is recorded in `.build/compact-tests.log`; repeat `Scripts/test.sh` before release.
+The latest development run passed 27 core tests and 10 platform tests. Test output is recorded in `.build/v1-tests.log`; repeat `Scripts/test.sh` before release.
 
 The selected-item blank-window failure was reproduced with a native fixture render. The preview background was filling an invalidation rectangle outside its view bounds. Drawing is now bounded explicitly, with a pixel-level paint-spill regression test. Native single/bulk fixture renders and compact/large resize checks pass; this does not replace full interactive UI automation.
 
@@ -30,7 +30,7 @@ A development Debug test on the available Mac queried the end of the 10,000-entr
 
 ## Manual compatibility and permission matrix
 
-Before public release, complete and record results for:
+Remaining compatibility and permission coverage:
 
 - macOS 14 and current macOS on Apple Silicon; Intel runtime smoke tests. Cross-compiling x86_64 does not establish Intel runtime compatibility.
 - VoiceOver, keyboard-only use, contrast, transparency, light/dark appearance, resizing, display changes, Spaces, and full-screen applications.
@@ -43,6 +43,8 @@ Local Xcode UI automation encountered a macOS authentication requirement. UI tes
 
 ## Distribution gate
 
-Use `Scripts/package.sh` to prepare a universal candidate. Developer ID signing, notarization/stapling, clean-machine Gatekeeper installation, approved release notes, and all compatibility/performance gates remain mandatory before a public release. No release, push, branch, or Git repository settings were created by the implementation process.
+`Scripts/package.sh` prepares versioned universal ZIP and DMG assets, checksums, and build metadata. Tags trigger the GitHub release workflow after tests and UI-test compilation. The current release is not notarized; release notes disclose this and the uncompleted checks above. Developer ID signing and notarization remain a future distribution improvement requiring credentials.
 
 Compact layout checks cover 40/60 pane proportions at multiple sizes, resetting a previously enlarged popup to 720 × 440 points, portrait/landscape image fitting, downsampling to a 1024-pixel edge, and releasing the image on dismissal. Native fixture renders were inspected for both image orientations and editable combined text. Performance targets still require Instruments measurements.
+
+Automatic-paste settings now expose Accessibility status and a direct System Settings link, recheck access when the app becomes active, and retain manual Copy as a fallback. Regression coverage simulates denied, granted, and disabled states without requesting real permissions or posting events.

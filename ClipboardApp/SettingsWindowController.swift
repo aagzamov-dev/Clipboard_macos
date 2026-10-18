@@ -4,11 +4,13 @@ import ServiceManagement
 import UniformTypeIdentifiers
 import CoreGraphics
 
-@MainActor final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
+@MainActor final class SettingsWindowController: NSWindowController, NSTextFieldDelegate, NSWindowDelegate {
+    private let permissionCheck: () -> Bool
+    private var permissionLabels: [NSTextField] = []
     private let settings: SettingsStore
     private let store: HistoryStore
     private let archives: ArchiveService
-    private let tabs = NSTabView()
+    private let tabs = NSTabView(frame: NSRect(x: 0, y: 0, width: 504, height: 530))
     private let status = label("", size: 11, color: .secondaryLabelColor)
     private let progress = NSProgressIndicator()
     private let cancelButton = ActionButton("Cancel operation", action: {})
@@ -21,26 +23,57 @@ import CoreGraphics
     var onHistoryChanged: (() -> Void)?
     var onHistoryCleared: ((Bool) -> Void)?
     var onCaptureResume: (() -> Void)?
-    init(settings: SettingsStore, store: HistoryStore) {
+    init(settings: SettingsStore, store: HistoryStore, permissionCheck: (() -> Bool)? = nil) {
+        self.permissionCheck = permissionCheck ?? (settings.isPersistent ? { PasteAccess.isGranted } : { false })
         self.settings = settings; self.store = store; archives = ArchiveService(store: store)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 610), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Clipboard Settings"; window.isReleasedWhenClosed = false
         super.init(window: window)
-        let root = NSStackView(); root.orientation = .vertical; root.alignment = .width; root.spacing = 12; root.edgeInsets = NSEdgeInsets(top: 16, left: 18, bottom: 16, right: 18)
+        window.delegate = self
+        NotificationCenter.default.addObserver(self, selector: #selector(refreshPermissionStatus), name: NSApplication.didBecomeActiveNotification, object: nil)
+        let root = NSStackView(); root.orientation = .vertical; root.distribution = .fill; root.alignment = .leading; root.spacing = 12; root.edgeInsets = NSEdgeInsets(top: 16, left: 18, bottom: 16, right: 18)
         window.contentView = root; root.addArrangedSubview(tabs)
         progress.style = .spinning; progress.controlSize = .small; progress.isDisplayedWhenStopped = false
         cancelButton.onClick = { [weak self] in self?.task?.cancel() }; cancelButton.isHidden = true
         status.maximumNumberOfLines = 3; status.lineBreakMode = .byWordWrapping
         root.addArrangedSubview(row([progress, status, cancelButton]))
+        for view in root.arrangedSubviews {
+            NSLayoutConstraint.activate([view.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 18), view.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -18)])
+        }
+        tabs.setContentHuggingPriority(.defaultLow, for: .vertical)
+        root.layoutSubtreeIfNeeded()
         rebuild()
     }
     required init?(coder: NSCoder) { fatalError() }
     func open() { NSApp.activate(ignoringOtherApps: true); showWindow(nil); window?.center(); window?.makeKeyAndOrderFront(nil); rebuild() }
+    func openPasteSettings() { open(); tabs.selectTabViewItem(withIdentifier: "Privacy"); refreshPermissionStatus() }
+    func windowDidBecomeKey(_ notification: Notification) { refreshPermissionStatus() }
+    @objc func refreshPermissionStatus() {
+        let granted = permissionCheck()
+        let text = !settings.value.automaticPaste ? "Automatic paste is off. Copy works without permission." : granted ? "Automatic paste is ready. Accessibility access is allowed." : "Permission required: allow Clipboard in System Settings → Privacy & Security → Accessibility."
+        for label in permissionLabels { label.stringValue = text; label.textColor = granted && settings.value.automaticPaste ? .systemGreen : .secondaryLabelColor }
+    }
+    private func pasteAccessControls() -> [NSView] {
+        let summary = note(""); summary.setAccessibilityLabel("Automatic paste permission status"); permissionLabels.append(summary)
+        let open = ActionButton("Open Accessibility Settings…", action: { [weak self] in
+            guard let self, self.settings.isPersistent else { return }
+            PasteAccess.request(); PasteAccess.openSettings(); self.refreshPermissionStatus()
+        })
+        open.isEnabled = settings.isPersistent
+        return [summary, open]
+    }
     private func page(_ name: String, _ views: [NSView]) {
         let item = NSTabViewItem(identifier: name); item.label = name
-        let stack = NSStackView(views: views); stack.orientation = .vertical; stack.alignment = .width; stack.spacing = 15; stack.edgeInsets = NSEdgeInsets(top: 24, left: 14, bottom: 16, right: 14)
+        let stack = SettingsDocumentStack(frame: NSRect(x: 0, y: 0, width: 480, height: 500)); stack.distribution = .fill; stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 15; stack.edgeInsets = NSEdgeInsets(top: 24, left: 14, bottom: 16, right: 14)
+        views.forEach(stack.addArrangedSubview)
         let spacer = NSView(); spacer.setContentHuggingPriority(.defaultLow, for: .vertical); stack.addArrangedSubview(spacer)
-        item.view = stack; tabs.addTabViewItem(item)
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: 500)); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
+        scroll.documentView = stack; stack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([stack.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor), stack.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor), stack.topAnchor.constraint(equalTo: scroll.contentView.topAnchor)])
+        for view in stack.arrangedSubviews {
+            NSLayoutConstraint.activate([view.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: 14), view.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: -14)])
+        }
+        item.view = scroll; tabs.addTabViewItem(item)
     }
     private func note(_ text: String) -> NSTextField { let l = label(text, size: 11, color: .secondaryLabelColor); l.maximumNumberOfLines = 0; l.lineBreakMode = .byWordWrapping; return l }
     private func toggle(_ title: String, _ key: WritableKeyPath<AppSettings, Bool>) -> NSButton {
@@ -63,7 +96,7 @@ import CoreGraphics
     private func rebuild() {
         let selected = tabs.selectedTabViewItem?.identifier as? String
         tabs.tabViewItems.forEach(tabs.removeTabViewItem)
-        textChanges.removeAll(); changes.removeAll()
+        textChanges.removeAll(); changes.removeAll(); permissionLabels.removeAll()
         let login = ActionButton("Launch at login", action: {}); login.setButtonType(.switch); login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         login.isEnabled = settings.isPersistent
         login.onClick = { [weak self, weak login] in guard let self, let login else { return }; self.perform { if login.state == .on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }; if SMAppService.mainApp.status == .requiresApproval { self.status.stringValue = "Approve Clipboard in System Settings → General → Login Items." } } }
@@ -78,11 +111,13 @@ import CoreGraphics
                 let alert = NSAlert(); alert.messageText = "Allow automatic pasting?"; alert.informativeText = "Clipboard sends Command-V only after you choose Paste. macOS may require Accessibility access. Copy works without this permission."
                 alert.addButton(withTitle: "Enable and request access"); alert.addButton(withTitle: "Cancel")
                 guard alert.runModal() == .alertFirstButtonReturn else { autoPaste.state = .off; return }
-                _ = CGRequestPostEventAccess()
+                PasteAccess.request()
             }
             self.perform { try self.settings.update { $0.automaticPaste = autoPaste.state == .on } }
+            self.refreshPermissionStatus()
+            if autoPaste.state == .on && !self.permissionCheck() { PasteAccess.openSettings() }
         }
-        page("General", [login, row([label("Open Clipboard"), shortcut]), row([label("Appearance"), theme]), toggle("Open on active display", \.activeDisplay), autoPaste, note("No Input Monitoring, Screen Recording, or Full Disk Access is requested."), row([label("Poll interval (seconds)"), field(String(settings.value.pollingInterval)) { [weak self] value in guard let number = Double(value) else { throw CoreError.invalidData }; try self?.settings.update { $0.pollingInterval = number } }])])
+        page("General", [login, row([label("Open Clipboard"), shortcut]), row([label("Appearance"), theme]), toggle("Open on active display", \.activeDisplay), autoPaste] + pasteAccessControls() + [note("No Input Monitoring, Screen Recording, or Full Disk Access is requested."), row([label("Poll interval (seconds)"), field(String(settings.value.pollingInterval)) { [weak self] value in guard let number = Double(value) else { throw CoreError.invalidData }; try self?.settings.update { $0.pollingInterval = number } }])])
         let days: [Int?] = [30, 7, 1, nil]
         let retention = popup(["30 days", "7 days", "1 day", "Forever", "Custom"], selection: days.firstIndex(where: { $0 == settings.value.retentionDays }) ?? 4) { [weak self] p in
             guard let self else { return }
@@ -100,8 +135,9 @@ import CoreGraphics
         page("History", [row([label("Keep unpinned history"), retention]), note("Pinned entries are never removed by automatic cleanup."), row([label("Maximum unpinned entries"), maxCount]), toggle("Run cleanup weekly instead of daily", \.weeklyCleanup), toggle("Show pinned entries first", \.pinnedFirst), row([label("Combine copied text using"), merge]), ActionButton("Clear unpinned history…", action: { [weak self] in self?.clearHistory(includePinned: false) }), ActionButton("Clear all history…", action: { [weak self] in self?.clearHistory(includePinned: true) })])
         excludedLabel = note(settings.value.excludedApps.isEmpty ? "No applications selected." : settings.value.excludedApps.joined(separator: "\n"))
         let location = store.rootURL.path
-        page("Privacy", [ActionButton("Pause / Resume monitoring", action: { [weak self] in self?.onPause?() }), ActionButton("Retry clipboard access", action: { [weak self] in self?.onCaptureResume?() }), note("Confidential, transient, and known password-manager markers are skipped. This cannot detect every secret."), label("Pause while these applications are active"), excludedLabel, row([ActionButton("Add application…", action: { [weak self] in self?.addExcludedApplication() }), ActionButton("Remove applications…", action: { [weak self] in self?.removeExcludedApplications() })]), note("Source markers are informational. Missing or misleading markers and background writers prevent guaranteed exclusions. Copying while an excluded app is active is not captured on returning."), note("History is local and not encrypted by this app. Private files cannot protect against processes with access to your user account. Deletion cannot erase older exports, APFS snapshots, or SSD remnants."), note(location)])
+        page("Privacy", [ActionButton("Set up automatic paste…", action: { [weak self] in self?.tabs.selectTabViewItem(withIdentifier: "General") })] + pasteAccessControls() + [ActionButton("Pause / Resume monitoring", action: { [weak self] in self?.onPause?() }), ActionButton("Retry clipboard access", action: { [weak self] in self?.onCaptureResume?() }), note("Confidential, transient, and known password-manager markers are skipped. This cannot detect every secret."), label("Pause while these applications are active"), excludedLabel, row([ActionButton("Add application…", action: { [weak self] in self?.addExcludedApplication() }), ActionButton("Remove applications…", action: { [weak self] in self?.removeExcludedApplications() })]), note("Source markers are informational. Missing or misleading markers and background writers prevent guaranteed exclusions. Copying while an excluded app is active is not captured on returning."), note("History is local and not encrypted by this app. Private files cannot protect against processes with access to your user account. Deletion cannot erase older exports, APFS snapshots, or SSD remnants."), note(location)])
         page("Backup", [label("Settings"), row([ActionButton("Export settings…", action: { [weak self] in self?.exportSettings() }), ActionButton("Import settings…", action: { [weak self] in self?.importSettings() })]), note("Settings exports never contain clipboard history or passwords. Importing settings does not grant system permissions."), separator(), label("Clipboard history"), ActionButton("Export history…", action: { [weak self] in self?.exportHistory() }), ActionButton("Import history…", action: { [weak self] in self?.importHistory() }), note("History includes managed images and file references, not the original referenced files. Optional password encryption protects exported history; the local history database remains unencrypted."), note("Keep your backup password safe. Clipboard cannot recover forgotten passwords.")])
+        refreshPermissionStatus()
         if let selected, let item = tabs.tabViewItems.first(where: { $0.identifier as? String == selected }) { tabs.selectTabViewItem(item) }
     }
     private func clearHistory(includePinned: Bool) {
@@ -209,3 +245,5 @@ import CoreGraphics
         recording = false; onRecord?(UInt32(event.keyCode), modifiers); title = event.charactersIgnoringModifiers?.uppercased() ?? "Recorded"
     }
 }
+
+@MainActor private final class SettingsDocumentStack: NSStackView { override var isFlipped: Bool { true } }
