@@ -1,6 +1,6 @@
 # Verification and release gates
 
-v1.0.0 is distributed with an ad-hoc signature and explicit limitations in the release notes. Developer ID signing/notarization, full runtime compatibility coverage, authenticated UI automation, and Instruments performance certification remain outstanding. Building successfully does not establish those results.
+v1.0.1 is distributed with an ad-hoc signature and explicit limitations in the release notes. Developer ID signing/notarization, full runtime compatibility coverage, authenticated UI automation, and Instruments performance certification remain outstanding. Building successfully does not establish those results.
 
 ## Automated coverage
 
@@ -12,7 +12,7 @@ v1.0.0 is distributed with an ad-hoc signature and explicit limitations in the r
 - Native popup layout at list/preview widths, focus-loss dismissal with draft preservation, and automatic capture resuming after starting inside an excluded app.
 - Actual AppKit representation conversion using named private pasteboards, confidential markers, unknown/explicit sources, multi-file references, self-generated write suppression, and fixture paste without event posting.
 
-The latest development run passed 27 core tests and 10 platform tests. Test output is recorded in `.build/v1-tests.log`; repeat `Scripts/test.sh` before release.
+The latest development run passed 27 core tests and 17 platform tests. Test output is recorded in `/tmp/clipboard-update-tests.log`; repeat `Scripts/test.sh` before release.
 
 The selected-item blank-window failure was reproduced with a native fixture render. The preview background was filling an invalidation rectangle outside its view bounds. Drawing is now bounded explicitly, with a pixel-level paint-spill regression test. Native single/bulk fixture renders and compact/large resize checks pass; this does not replace full interactive UI automation.
 
@@ -48,3 +48,17 @@ Local Xcode UI automation encountered a macOS authentication requirement. UI tes
 Compact layout checks cover 40/60 pane proportions at multiple sizes, resetting a previously enlarged popup to 720 × 440 points, portrait/landscape image fitting, downsampling to a 1024-pixel edge, and releasing the image on dismissal. Native fixture renders were inspected for both image orientations and editable combined text. Performance targets still require Instruments measurements.
 
 Automatic-paste settings now expose Accessibility status and a direct System Settings link, recheck access when the app becomes active, and retain manual Copy as a fallback. Regression coverage simulates denied, granted, and disabled states without requesting real permissions or posting events.
+
+v1.0.1 separates disabled paste, permission denial, and unavailable destinations. Simulated activation tests cover already-frontmost targets, cooperative activation, and terminated destinations. Real destination-app acceptance still requires interactive confirmation; no test sends keystrokes to unrelated apps.
+
+Local build 3 changes the history panel back to normal app activation while retaining its borderless popup design and accessory activation policy. The Permissions page displays capture access, event-posting access, and an in-memory last-attempt status. The local-only build script retains a single deliverable directory and skips running apps during old-build cleanup. The user confirmed automatic paste works in local build 3. The user subsequently authorized GitHub updates and the v1.0.1 release.
+
+## v1.0.1 updater and popup checks
+
+Sparkle 2.10.0 is pinned by exact version, resolved revision, and the upstream binary checksum. Its release tools are separately pinned by SHA-256. The app requires Ed25519 verification of the feed and archives before extraction, disables profiling, and requires a user action to install. Fixture mode does not initialize the updater. The private key stays in the local Keychain and the approved encrypted repository secret; pull-request validation receives no secret.
+
+Regression coverage checks clicking the initially selected row and preserving the selected entry after capture refresh. A normal cached selection no longer enumerates all history IDs. The popup waits for app activation before taking keyboard focus and ignores intermediate focus loss while opening.
+
+An actual future-version installation/relaunch and Intel/macOS 14 runtime smoke tests remain pending. Universal compilation and signed-feed checks do not substitute for these checks. Performance targets remain unmeasured.
+
+Local candidate verification accepted the valid feed and ZIP signatures and rejected modified copies of both. The complete nested app signature, universal arm64/x86_64 binaries, ZIP/DMG checksums, and fixture UI-test compilation passed.

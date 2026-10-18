@@ -56,8 +56,10 @@ import os
     private var undoToken: UUID?
     private var previewVisible = false
     private var restoringSelection = false
+    private var isOpening = false
     private var previewWidth: NSLayoutConstraint?
     var protectedDraftIDs: Set<UUID> { drafts.ids }
+    var hasUnsavedEdits: Bool { !drafts.isEmpty || combinedDraft?.hasChanges == true }
     var onSettings: (() -> Void)?
     var onPasteSettings: (() -> Void)?
     private var openingInterval: OSSignpostIntervalState?
@@ -66,7 +68,7 @@ import os
 
     init(store: HistoryStore, settings: SettingsStore, paste: PasteCoordinator) {
         self.store = store; self.settings = settings; self.paste = paste
-        let panel = HistoryPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: 440), styleMask: [.borderless, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
+        let panel = HistoryPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: 440), styleMask: [.borderless, .resizable], backing: .buffered, defer: false)
         panel.title = "Clipboard"; panel.level = .floating; panel.isFloatingPanel = true; panel.hidesOnDeactivate = false
         panel.isOpaque = false; panel.backgroundColor = .clear
         panel.becomesKeyOnlyIfNeeded = false; panel.hasShadow = true; panel.isMovableByWindowBackground = true
@@ -78,6 +80,8 @@ import os
         buildUI()
         panel.command = { [weak self] in self?.handle($0) ?? false }
         table.command = { [weak self] in self?.handle($0) ?? false }
+        table.onSelectedRowClick = { [weak self] in self?.updateSelection() }
+        NotificationCenter.default.addObserver(self, selector: #selector(applicationBecameActive), name: NSApplication.didBecomeActiveNotification, object: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
     private func buildUI() {
@@ -188,10 +192,18 @@ import os
             window.setFrame(frame, display: false)
         }
         positionWindow()
-        showWindow(nil); window?.makeKeyAndOrderFront(nil)
+        isOpening = true
+        window?.orderFront(nil)
         installDismissalMonitors()
-        window?.makeFirstResponder(table)
+        if NSApp.isActive { finishOpening() } else { NSApp.activate() }
         refresh()
+    }
+    @objc private func applicationBecameActive() { if isOpening { finishOpening() } }
+    private func finishOpening() {
+        guard window?.isVisible == true else { isOpening = false; return }
+        window?.makeKeyAndOrderFront(nil)
+        window?.makeFirstResponder(table)
+        isOpening = false
     }
     func toggle() {
         if window?.isVisible == true { dismissPopup() } else { open() }
@@ -225,13 +237,21 @@ import os
     }
     func dismissPopup() {
         guard NSApp.modalWindow == nil, window?.attachedSheet == nil else { return }
+        isOpening = false
         removeDismissalMonitors()
         searchTask?.cancel(); previewTask?.cancel(); imageTask?.cancel(); revision += 1
         pages.removeAll(); pageOrder.removeAll(); loading.removeAll()
         window?.orderOut(nil); image.image = nil
         editor.string = ""; editor.undoManager?.removeAllActions(); selectedDetail = nil; lastRenderedID = nil
     }
-    func windowDidResignKey(_ notification: Notification) { dismissPopup() }
+    func windowDidResignKey(_ notification: Notification) {
+        guard !isOpening else { return }
+        Task { [weak self] in
+            await Task.yield()
+            guard let self, !isOpening, window?.isKeyWindow != true else { return }
+            dismissPopup()
+        }
+    }
     private func positionWindow() {
         guard let window else { return }
         let pointerScreen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }
@@ -272,17 +292,16 @@ import os
             do {
                 let page = try await store.page(requested)
                 guard !Task.isCancelled, revision == version else { return }
-                totalCount = page.totalCount; cache(page); table.reloadData(); itemCount.stringValue = "\(totalCount) items"
+                let ids = retained.isEmpty ? [] : try await store.orderedIDs(requested)
+                guard !Task.isCancelled, revision == version else { return }
+                totalCount = page.totalCount; cache(page)
+                restoringSelection = true
+                table.reloadData()
+                let indexes = IndexSet(ids.enumerated().filter { retained.contains($0.element) }.map(\.offset))
+                table.selectRowIndexes(indexes.isEmpty && totalCount > 0 ? IndexSet(integer: 0) : indexes, byExtendingSelection: false)
+                restoringSelection = false
+                itemCount.stringValue = "\(totalCount) items"
                 if let interval = openingInterval { signposter.endInterval("Open history", interval); openingInterval = nil }
-                if !retained.isEmpty {
-                    let ids = try await store.orderedIDs(requested)
-                    guard revision == version, !Task.isCancelled else { return }
-                    let indexes = IndexSet(ids.enumerated().filter { retained.contains($0.element) }.map(\.offset))
-                    restoringSelection = true; table.selectRowIndexes(indexes, byExtendingSelection: false); restoringSelection = false
-                }
-                if retained.isEmpty, totalCount > 0, table.selectedRowIndexes.isEmpty {
-                    restoringSelection = true; table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false); restoringSelection = false
-                }
                 updateSelection(openPreview: false)
             } catch is CancellationError {} catch { showNotice(error.localizedDescription) }
         }
@@ -335,9 +354,11 @@ import os
         previewTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let ids = try await store.orderedIDs(requested)
+                let ordered: [UUID]
+                if cachedSelection.count == indexes.count { ordered = cachedSelection }
+                else { let ids = try await store.orderedIDs(requested); ordered = indexes.compactMap { ids[safe: $0] } }
                 guard !Task.isCancelled, revision == version else { return }
-                let ordered = indexes.compactMap { ids[safe: $0] }; selectedIDs = Set(ordered)
+                selectedIDs = Set(ordered)
                 guard !ordered.isEmpty else { renderEmptyPreview(); return }
                 if openPreview { setPreview(true) }
                 if ordered.count > 1 {
@@ -507,13 +528,16 @@ import os
                 let result = try await paste.paste(payload, enabled: settings.value.automaticPaste)
                 switch result {
                 case .pasteEventSent: dismissPopup()
+                case .copied: showNotice("Copied.")
                 default:
+                    NSApp.activate()
                     window?.makeKeyAndOrderFront(nil); installDismissalMonitors(); refresh()
-                    let alert = NSAlert(); alert.messageText = "Automatic paste is unavailable"; alert.informativeText = "You can copy this item and paste it manually. Enable automatic paste in Settings to allow the optional system permission."
-                    alert.addButton(withTitle: "Copy instead"); alert.addButton(withTitle: "Open Paste Settings…"); alert.addButton(withTitle: "Cancel")
+                    let failure = PasteFailurePresentation(outcome: result, deniedDescription: result == .permissionRequired ? PasteAccess.deniedDescription : "")
+                    let alert = NSAlert(); alert.messageText = failure.title; alert.informativeText = failure.message
+                    alert.addButton(withTitle: "Copy instead"); if failure.offersSettings { alert.addButton(withTitle: "Open Paste Settings…") }; alert.addButton(withTitle: "Cancel")
                     let response = alert.runModal()
                     if response == .alertFirstButtonReturn { try paste.write(payload); showNotice("Copied. Switch to your application and press ⌘V.") }
-                    else if response == .alertSecondButtonReturn { onPasteSettings?() }
+                    else if failure.offersSettings && response == .alertSecondButtonReturn { onPasteSettings?() }
                 }
             } catch is CancellationError {} catch { showNotice(error.localizedDescription) }
         }

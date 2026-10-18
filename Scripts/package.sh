@@ -4,13 +4,7 @@ cd "${0:A:h:h}"
 mkdir -p .build/release
 xcodebuild -project Clipboard.xcodeproj -scheme Clipboard -configuration Release -destination 'generic/platform=macOS' -derivedDataPath .build/universal 'ARCHS=arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
 clipboard_app="$PWD/.build/universal/Build/Products/Release/Clipboard.app"
-if [[ -n "${CLIPBOARD_SIGN_IDENTITY:-}" ]]; then
-    codesign --force --options runtime --timestamp --sign "$CLIPBOARD_SIGN_IDENTITY" "$clipboard_app"
-    codesign --verify --strict --verbose=2 "$clipboard_app"
-else
-    codesign --force --sign - "$clipboard_app"
-    print 'Ad-hoc signed: not Developer ID signed or notarized.'
-fi
+Scripts/sign-app.sh "$clipboard_app"
 clipboard_zip="$PWD/.build/release/Clipboard.zip"
 ditto -c -k --keepParent "$clipboard_app" "$clipboard_zip"
 if [[ -n "${CLIPBOARD_NOTARY_PROFILE:-}" ]]; then

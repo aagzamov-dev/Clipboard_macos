@@ -176,7 +176,7 @@ public struct HistoryQuery: Equatable, Sendable {
 }
 public struct HistoryPage: Sendable { public var entries: [ClipboardEntrySummary]; public var totalCount: Int; public var offset: Int }
 public enum MonitorState: Equatable, Sendable { case running, manuallyPaused, suspended, permissionBlocked, storageBlocked }
-public enum PasteOutcome: Sendable { case copied, pasteEventSent, permissionRequired, targetUnavailable, failed }
+public enum PasteOutcome: Sendable, Equatable { case copied, pasteEventSent, disabled, permissionRequired, targetUnavailable, failed }
 
 public struct SelectionState: Sendable {
     public private(set) var ids = Set<UUID>()

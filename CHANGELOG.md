@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.1] — 2026-10-18
+
+- Separate disabled automatic paste, missing event-posting permission, and unavailable destination failures.
+- Replace the non-activating popup focus mode with a normally activating borderless panel; restore focus using macOS cooperative activation; skip redundant activation when the destination is already frontmost and allow the main run loop to restore keyboard focus.
+- Add a Permissions page with clipboard-reading state, event-posting access, and content-free last-paste diagnostics. No additional privacy permissions are requested.
+- Keep one current local build and clean obsolete workspace installers.
+- Add Sparkle 2.10.0 updates from GitHub Releases, signed archives and feed verification, a daily-check preference, and manual checking.
+- Wait for app activation before making the popup key; avoid dismissing during its initial focus transition.
+- Open preview when clicking an already-selected row, retain the selected entry after capture refresh, and avoid full-history ID reads for cached selections.
+- Protect unsaved individual and combined edits before an update restart.
+- Open paste setup directly on General and add an explicit access recheck.
+- Add simulated permission and activation regression tests; no unrelated app receives keystrokes during testing.
+
 ## [1.0.0] — 2026-10-18
 
 First release of Clipboard for macOS 14 and newer.
@@ -15,3 +28,5 @@ First release of Clipboard for macOS 14 and newer.
 Distribution: ad-hoc signed; not Developer ID signed or notarized. Full UI automation, the OS/hardware compatibility matrix, and Instruments performance certification remain pending; see VERIFICATION.md.
 
 [1.0.0]: https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.0
+
+[1.0.1]: https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.1

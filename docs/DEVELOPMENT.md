@@ -1,5 +1,11 @@
 # Development
 
+## Local workflow
+
+Run `Scripts/local.sh` to build one current local app and ZIP in `.build/local`. After a successful build it removes obsolete generated Clipboard app bundles and installers from this workspace, while preserving history, settings, running copies, and source code. It does not update or remove the installed app in Applications.
+
+Local builds use the current Mac’s architecture. Keep the installed app in one fixed location when testing macOS permission grants.
+
 ## Build and run
 
 Open `Clipboard.xcodeproj` in Xcode 27.0 and run the shared **Clipboard** scheme, or run:
@@ -11,7 +17,7 @@ open .build/xcode/Build/Products/Debug/Clipboard.app
 
 The app lives in the menu bar. Choose **Start local history** to consent to capture. Opening the app does not capture existing clipboard contents. The initial shortcut is **Option–Command–V**; conflicts can be changed in Settings. Launch at login is off until enabled.
 
-For an isolated demo, run the Debug executable with `--fixtures`. This uses temporary history, does not start monitoring or register the global shortcut, does not persist real preferences, and writes only to a private pasteboard. Release builds ignore fixture flags.
+For an isolated demo, run the Debug executable with `--fixtures`. This uses temporary history, does not start monitoring or register the global shortcut, does not persist real preferences or start the updater, and writes only to a private pasteboard. Release builds ignore fixture flags.
 
 ## Tests and architecture
 
