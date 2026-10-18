@@ -19,6 +19,7 @@ import ClipboardCore
     private var pauseItem: NSMenuItem?
     private var fixtureMode = false
     private var quitting = false
+    private var updates: UpdateController?
     private var registeredShortcut: (UInt32, UInt32)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -42,7 +43,18 @@ import ClipboardCore
             self.monitor = monitor
             let paste = PasteCoordinator(sessionToken: monitor.sessionToken, testMode: fixtureMode); self.paste = paste
             let history = HistoryWindowController(store: store, settings: settings, paste: paste); self.history = history
-            let preferences = SettingsWindowController(settings: settings, store: store); self.preferences = preferences
+            let preferences = SettingsWindowController(settings: settings, store: store, pasteStatus: { [weak paste] in paste?.lastStatus ?? "No paste attempted." }); self.preferences = preferences
+            if !fixtureMode {
+                let updates = UpdateController(); self.updates = updates
+                updates.prepareToInstall = { [weak self, weak history] install in
+                    history?.requestClose { self?.quitting = true; install() }
+                }
+                preferences.updateChecksEnabled = { [weak updates] in updates?.automaticChecks ?? false }
+                preferences.onUpdateChecksChanged = { [weak updates] in updates?.automaticChecks = $0 }
+                preferences.onCheckForUpdates = { [weak self] in self?.checkForUpdates(nil) }
+                preferences.canCheckForUpdates = { [weak updates] in updates?.canCheck ?? false }
+            }
+            paste.onStatusChanged = { [weak preferences] in preferences?.refreshPermissionStatus() }
             history.onToggleRecording = { [weak self] in self?.togglePause() }
             history.onPasteSettings = { [weak preferences] in preferences?.openPasteSettings() }
             history.onSettings = { [weak preferences] in preferences?.open() }
@@ -64,7 +76,7 @@ import ClipboardCore
                 if page.totalCount == 0 { for text in ["Keep it simple. Make it feel native.", "let clipboard = NSPasteboard.general", "https://developer.apple.com/design/human-interface-guidelines", "The best tools get out of your way.\n\nA small, thoughtful utility that keeps what you copy, so you can stay focused on what you’re making."] { try await store.insert(.plainText(text)) } }
                 manuallyPaused = true; history.open()
             } else if !settings.value.onboardingComplete { showOnboarding() }
-            else { manuallyPaused = false; applyCaptureState() }
+            else { manuallyPaused = false; applyCaptureState(); updates?.start() }
             if !fixtureMode { await performMaintenance() }
             startMaintenanceTimer()
         } catch {
@@ -80,10 +92,10 @@ import ClipboardCore
     private func showOnboarding() {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert(); alert.messageText = "Your clipboard, kept on this Mac"
-        alert.informativeText = "Clipboard saves supported items locally after you copy them. Unpinned entries expire after 30 days. Recognized confidential markers are skipped, but not every password or secret can be detected.\n\nHistory is not encrypted by this app. There are no accounts, analytics, or network requests. macOS may ask permission to read the clipboard. Automatic paste is optional and can be enabled separately."
+        alert.informativeText = "Clipboard saves supported items locally after you copy them. Unpinned entries expire after 30 days. Recognized confidential markers are skipped, but not every password or secret can be detected.\n\nHistory is not encrypted by this app. There are no accounts or analytics. Optional update checks contact GitHub; clipboard contents stay on this Mac. macOS may ask permission to read the clipboard. Automatic paste is optional and can be enabled separately."
         alert.addButton(withTitle: "Start local history"); alert.addButton(withTitle: "Not now")
         if alert.runModal() == .alertFirstButtonReturn {
-            do { try settings?.update { $0.onboardingComplete = true }; manuallyPaused = false; applyCaptureState() } catch { history?.showNotice(error.localizedDescription) }
+            do { try settings?.update { $0.onboardingComplete = true }; manuallyPaused = false; applyCaptureState(); updates?.start() } catch { history?.showNotice(error.localizedDescription) }
         } else { manuallyPaused = true; applyCaptureState() }
     }
     private func buildMenu() {
@@ -94,6 +106,7 @@ import ClipboardCore
         pauseItem = menu.addItem(withTitle: "Pause monitoring", action: #selector(pause), keyEquivalent: ""); pauseItem?.target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
+        menu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Quit Clipboard", action: #selector(quit), keyEquivalent: "q").target = self
         statusMenu = menu
         item.button?.target = self; item.button?.action = #selector(statusClicked)
@@ -171,6 +184,12 @@ import ClipboardCore
             history?.dismissPopup()
             item.menu = statusMenu; item.button?.performClick(nil); item.menu = nil
         } else { history?.toggle() }
+    }
+    @objc private func checkForUpdates(_ sender: Any?) {
+        guard settings?.value.onboardingComplete == true else { showOnboarding(); return }
+        history?.dismissPopup()
+        updates?.start()
+        updates?.checkForUpdates(sender)
     }
     @objc private func openHistory() { history?.open() }
     @objc private func openSettings() { preferences?.open() }

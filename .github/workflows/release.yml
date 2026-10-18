@@ -31,6 +31,12 @@ jobs:
         run: xcodebuild -project Clipboard.xcodeproj -scheme Clipboard -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath .build/ci-ui CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES ONLY_ACTIVE_ARCH=YES build-for-testing
       - name: Package universal app and disk image
         run: Scripts/package.sh
+      - name: Sign update archive and appcast
+        env:
+          SPARKLE_EDDSA_PRIVATE_KEY: ${{ secrets.SPARKLE_EDDSA_PRIVATE_KEY }}
+        run: |
+          test -n "$SPARKLE_EDDSA_PRIVATE_KEY" || { echo 'Missing Sparkle signing secret'; exit 1; }
+          Scripts/appcast.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Clipboard-${{ github.ref_name }}
@@ -39,6 +45,7 @@ jobs:
             .build/release/Clipboard-${{ github.ref_name }}-universal.dmg
             .build/release/SHA256SUMS
             .build/release/BUILD-INFO.json
+            .build/release/appcast.xml
           if-no-files-found: error
   publish:
     needs: build

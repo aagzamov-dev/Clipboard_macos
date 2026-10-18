@@ -32,6 +32,15 @@ import AppKit
 @MainActor func separator() -> NSBox { let box = NSBox(); box.boxType = .separator; return box }
 @MainActor final class HistoryTable: NSTableView {
     var command: ((NSEvent) -> Bool)?
+    var onSelectedRowClick: (() -> Void)?
+    override func mouseDown(with event: NSEvent) {
+        let clickedRow = row(at: convert(event.locationInWindow, from: nil))
+        let previous = selectedRowIndexes
+        super.mouseDown(with: event)
+        if clickedRow >= 0, selectedRowIndexes == previous, previous.contains(clickedRow), event.clickCount == 1 {
+            onSelectedRowClick?()
+        }
+    }
     override func keyDown(with event: NSEvent) { if command?(event) != true { super.keyDown(with: event) } }
     override func performKeyEquivalent(with event: NSEvent) -> Bool { if command?(event) == true { return true }; return super.performKeyEquivalent(with: event) }
 }

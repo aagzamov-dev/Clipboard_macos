@@ -4,6 +4,40 @@ import ClipboardCore
 @testable import ClipboardPlatform
 
 @MainActor final class PlatformTests: XCTestCase {
+    func testPreselectedFirstRowOpensPreviewAndSurvivesCaptureRefresh() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-FirstClick-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try HistoryStore(rootURL: root)
+        try await store.insert(.plainText("First selection fixture"))
+        let controller = HistoryWindowController(store: store, settings: SettingsStore(persistent: false), paste: PasteCoordinator(sessionToken: "test", testMode: true))
+        let window = try XCTUnwrap(controller.window)
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let table = try XCTUnwrap(descendants(try XCTUnwrap(window.contentView)).compactMap { $0 as? HistoryTable }.first)
+        controller.refresh()
+        for _ in 0..<100 {
+            if table.selectedRow == 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(table.selectedRow, 0)
+        XCTAssertEqual(window.frame.width, 400, accuracy: 1)
+        table.onSelectedRowClick?()
+        for _ in 0..<100 {
+            if window.frame.width > 400 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(window.frame.width, 720, accuracy: 1)
+        try await store.insert(.plainText("A newer entry"))
+        controller.refresh()
+        for _ in 0..<100 {
+            if table.numberOfRows == 2 && table.selectedRow == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(table.numberOfRows, 2)
+        XCTAssertEqual(table.selectedRow, 1)
+        controller.dismissPopup()
+    }
+
     func testAlreadyActiveDestinationDoesNotRequireAnotherActivationRequest() async throws {
         let restored = try await PasteActivation.restore(targetPID: 42, isTerminated: { false }, frontmostPID: { 42 }, activate: { XCTFail("An active target does not need activation"); return false })
         XCTAssertTrue(restored)
@@ -25,6 +59,7 @@ import ClipboardCore
         let coordinator = PasteCoordinator(sessionToken: "test", permissionCheck: { XCTFail("Disabled paste must not check permissions"); return false })
         let outcome = try await coordinator.paste(.plainText("Private fixture"), enabled: false)
         XCTAssertEqual(outcome, .disabled)
+        XCTAssertEqual(coordinator.lastStatus, "Stopped: automatic paste is off.")
         let failure = PasteFailurePresentation(outcome: outcome, deniedDescription: "Denied")
         XCTAssertEqual(failure.title, "Automatic paste is turned off")
     }
@@ -32,6 +67,7 @@ import ClipboardCore
         let coordinator = PasteCoordinator(sessionToken: "test", permissionCheck: { true })
         let outcome = try await coordinator.paste(.plainText("Private fixture"), enabled: true)
         XCTAssertEqual(outcome, .targetUnavailable)
+        XCTAssertEqual(coordinator.lastStatus, "Stopped: no live destination app was remembered.")
         let failure = PasteFailurePresentation(outcome: outcome, deniedDescription: "Denied")
         XCTAssertFalse(failure.offersSettings)
         XCTAssertEqual(failure.title, "The destination app is unavailable")
@@ -40,6 +76,7 @@ import ClipboardCore
         let coordinator = PasteCoordinator(sessionToken: "test", permissionCheck: { false })
         let outcome = try await coordinator.paste(.plainText("Private fixture"), enabled: true)
         XCTAssertEqual(outcome, .permissionRequired)
+        XCTAssertEqual(coordinator.lastStatus, "Stopped: macOS denied event-posting access to this copy.")
         let failure = PasteFailurePresentation(outcome: outcome, deniedDescription: "Permission denied to running copy")
         XCTAssertEqual(failure.message, "Permission denied to running copy")
         XCTAssertTrue(failure.offersSettings)
@@ -67,7 +104,8 @@ import ClipboardCore
         XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains("Automatic paste is off") })
         let content = try XCTUnwrap(controller.window?.contentView)
         let tabs = try XCTUnwrap(descendants(content).compactMap { $0 as? NSTabView }.first)
-        tabs.selectTabViewItem(withIdentifier: "Privacy")
+        XCTAssertTrue(tabs.tabViewItems.contains { $0.identifier as? String == "Permissions" })
+        tabs.selectTabViewItem(withIdentifier: "Permissions")
         content.layoutSubtreeIfNeeded()
         let button = try XCTUnwrap(descendants(content).compactMap { $0 as? NSButton }.first { $0.title == "Open Accessibility Settings…" })
         XCTAssertGreaterThanOrEqual(button.bounds.width, button.fittingSize.width - 1)
@@ -103,7 +141,7 @@ import ClipboardCore
         try await store.insert(.plainText("A small place for everything you copy."))
         let controller = HistoryWindowController(store: store, settings: SettingsStore(persistent: false), paste: PasteCoordinator(sessionToken: "test", testMode: true))
         let window = try XCTUnwrap(controller.window)
-        XCTAssertTrue(window.styleMask.contains(.nonactivatingPanel))
+        XCTAssertFalse(window.styleMask.contains(.nonactivatingPanel))
         XCTAssertFalse(window.styleMask.contains(.titled))
         XCTAssertFalse(window.canBecomeMain)
         let content = try XCTUnwrap(window.contentView)
@@ -154,6 +192,10 @@ import ClipboardCore
         window.orderFront(nil)
         XCTAssertTrue(window.isVisible)
         controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: window))
+        for _ in 0..<100 {
+            if !window.isVisible { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
         XCTAssertFalse(window.isVisible)
         controller.refresh()
         for _ in 0..<100 {

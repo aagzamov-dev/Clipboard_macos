@@ -4,6 +4,9 @@ import CoreGraphics
 
 @MainActor final class PasteCoordinator {
     var previousApplication: NSRunningApplication?
+    private(set) var lastStatus = "No paste attempted in this session."
+    var onStatusChanged: (() -> Void)?
+    private func report(_ status: String) { lastStatus = status; onStatusChanged?() }
     let sessionToken: String
     private let testBoard: NSPasteboard?
     private let testMode: Bool
@@ -31,30 +34,44 @@ import CoreGraphics
         guard board.writeObjects(items) else { throw CoreError.invalidData }
     }
     func paste(_ snapshot: ClipboardSnapshot, enabled: Bool) async throws -> PasteOutcome {
-        if testMode { try write(snapshot); return .copied }
-        guard enabled else { return .disabled }
-        guard permissionCheck() else { return .permissionRequired }
-        guard let target = previousApplication, !target.isTerminated else { return .targetUnavailable }
+        if testMode { try write(snapshot); report("Fixture copied privately; no event sent."); return .copied }
+        guard enabled else { report("Stopped: automatic paste is off."); return .disabled }
+        guard permissionCheck() else { report("Stopped: macOS denied event-posting access to this copy."); return .permissionRequired }
+        guard let target = previousApplication, !target.isTerminated else { report("Stopped: no live destination app was remembered."); return .targetUnavailable }
+        report("Permission allowed. Restoring \(target.localizedName ?? "destination")…")
         let restored = try await PasteActivation.restore(targetPID: target.processIdentifier, isTerminated: { target.isTerminated }, frontmostPID: { NSWorkspace.shared.frontmostApplication?.processIdentifier }, activate: {
             NSApp.yieldActivation(to: target)
             return target.activate(from: .current, options: [])
         })
-        guard restored else { return .targetUnavailable }
+        guard restored else { report("Stopped: destination activation failed or timed out."); return .targetUnavailable }
         try Task.checkCancellation()
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier else { return .targetUnavailable }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier else { report("Stopped: another app took focus before copying."); return .targetUnavailable }
         try write(snapshot)
         let generation = NSPasteboard.general.changeCount
-        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true), let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else { return .failed }
+        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true), let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else { report("Stopped: macOS could not create the paste key events."); return .failed }
         down.flags = .maskCommand; up.flags = .maskCommand
-        guard NSPasteboard.general.changeCount == generation, NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier else { return .targetUnavailable }
+        guard NSPasteboard.general.changeCount == generation, NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier else { report("Stopped: clipboard or destination changed before sending."); return .targetUnavailable }
         down.post(tap: .cghidEventTap); up.post(tap: .cghidEventTap)
+        report("Command-V sent once to \(target.localizedName ?? "destination"). Destination acceptance is not observable.")
         return .pasteEventSent
     }
 }
 
 @MainActor enum PasteAccess {
     static var isGranted: Bool { CGPreflightPostEventAccess() }
-    static func request() { _ = CGRequestPostEventAccess() }
+    static var clipboardAccessDescription: String {
+        if #available(macOS 15.4, *) {
+            switch NSPasteboard.general.accessBehavior {
+            case .alwaysAllow: return "Allowed by macOS."
+            case .alwaysDeny: return "Denied by macOS. Allow Clipboard in Privacy & Security to resume capture."
+            case .ask: return "macOS asks on each read. Allow ongoing clipboard access to enable background capture."
+            case .default: return "System default. macOS may ask when a new clipboard item is read."
+            @unknown default: return "Check Clipboard access in System Settings."
+            }
+        }
+        return "This macOS version has no separate clipboard-reading permission control."
+    }
+    static func request() { if !isGranted { _ = CGRequestPostEventAccess() } }
     static let deniedDescription = "macOS has not granted event-posting access to this running copy of Clipboard. If Clipboard is already enabled in Accessibility settings, quit and reopen it. If the grant belongs to an older copy, remove that entry and add the installed app from Applications again."
     static func openSettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }

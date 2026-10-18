@@ -4,7 +4,7 @@ A small, native clipboard manager for macOS. Find what you copied, edit it, and 
 
 **macOS 14+ · Apple Silicon & Intel · Swift + AppKit · MIT**
 
-[Download v1.0.0](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.0) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
+[Download v1.0.1](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.1) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
 
 ![Clipboard with an editable combined preview](docs/screenshots/text-preview.png)
 
@@ -17,9 +17,9 @@ Native app screenshots with example clipboard content.
 - **Edit immediately.** Select text and start typing. Copy uses your draft; **⌘S** saves it to history.
 - **Copy several entries.** Command-click or Shift-click, edit the combined text, then Copy. Original entries stay unchanged.
 - **Find and keep.** Search, filter by date/type, and pin favorites. Unpinned history expires after 30 days by default.
-- **Your Mac, your history.** No accounts, analytics, cloud sync, or background network requests. Optional password-encrypted backups.
+- **Your Mac, your history.** No accounts, analytics, or cloud sync. Clipboard contents stay on your Mac. Optional password-encrypted backups.
 
-Built with native Apple frameworks and system SQLite, with no third-party runtime dependencies. History loads in bounded pages; image previews downsample to a 1024-pixel edge and release when dismissed. Performance measurements and remaining compatibility checks are documented in [Verification](VERIFICATION.md).
+Built with AppKit and system SQLite. [Sparkle](https://sparkle-project.org) handles authenticated app updates. History loads in bounded pages; image previews downsample to a 1024-pixel edge and release when dismissed. Performance measurements and remaining compatibility checks are documented in [Verification](VERIFICATION.md).
 
 <details>
 <summary>Image preview</summary>
@@ -30,11 +30,11 @@ Built with native Apple frameworks and system SQLite, with no third-party runtim
 
 ## Install
 
-1. Download **Clipboard-v1.0.0-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.0).
+1. Download **Clipboard-v1.0.1-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.1).
 2. Open it and drag **Clipboard.app** into **Applications**. A ZIP is also available.
 3. Launch Clipboard and choose **Start local history**. Recording starts automatically on future launches.
 
-**Signing:** v1.0.0 uses an ad-hoc signature and is **not Developer ID signed or notarized**. macOS may block the first launch. Review [Apple’s guidance](https://support.apple.com/en-us/102445) before deciding whether to allow it. Checksums are included with the release; source builds are available too.
+**Signing:** v1.0.1 uses an ad-hoc signature and is **not Developer ID signed or notarized**. macOS may block the first launch. Review [Apple’s guidance](https://support.apple.com/en-us/102445) before deciding whether to allow it. Checksums are included with the release; source builds are available too.
 
 If macOS blocks the installed app because it is quarantined, first verify the download against the release checksums and make sure you trust its source. You can then remove the quarantine flag for **Clipboard only** in Terminal:
 
@@ -55,6 +55,14 @@ Copy works without Accessibility access. Automatic paste is optional:
 3. Return to Clipboard. The permission status refreshes automatically. Open your destination app, then choose Paste from Clipboard.
 
 The same setup link is available in **Settings → Privacy** and the paste fallback dialog. Clipboard sends Command-V once; the destination controls whether it accepts it.
+
+## Updates
+
+Starting with **v1.0.1**, Clipboard checks GitHub Releases automatically, about once a day. You choose when to install and restart. Open **Settings → Updates** to turn checks off or check now; **Check for Updates…** is also in the menu-bar menu.
+
+Downloads and the update feed are verified with the app’s update-signing key before installation. No clipboard contents are sent; system profiling is disabled. Unsaved edits are protected before restarting.
+
+**Install v1.0.1 manually once if you have v1.0.0.** Older versions do not contain the updater. Update signatures do not replace Apple notarization; this release remains ad-hoc signed and unnotarized.
 
 ## Shortcuts
 
