@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — 1.0.1
+
+- Separate disabled automatic paste, missing event-posting permission, and unavailable destination failures.
+- Restore focus using macOS cooperative activation; skip redundant activation when the destination is already frontmost and allow the main run loop to restore keyboard focus.
+- Open paste setup directly on General and add an explicit access recheck.
+- Add simulated permission and activation regression tests; no unrelated app receives keystrokes during testing.
+
 ## [1.0.0] — 2026-10-18
 
 First release of Clipboard for macOS 14 and newer.

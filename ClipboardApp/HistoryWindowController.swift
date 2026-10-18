@@ -507,13 +507,15 @@ import os
                 let result = try await paste.paste(payload, enabled: settings.value.automaticPaste)
                 switch result {
                 case .pasteEventSent: dismissPopup()
+                case .copied: showNotice("Copied.")
                 default:
                     window?.makeKeyAndOrderFront(nil); installDismissalMonitors(); refresh()
-                    let alert = NSAlert(); alert.messageText = "Automatic paste is unavailable"; alert.informativeText = "You can copy this item and paste it manually. Enable automatic paste in Settings to allow the optional system permission."
-                    alert.addButton(withTitle: "Copy instead"); alert.addButton(withTitle: "Open Paste Settings…"); alert.addButton(withTitle: "Cancel")
+                    let failure = PasteFailurePresentation(outcome: result, deniedDescription: result == .permissionRequired ? PasteAccess.deniedDescription : "")
+                    let alert = NSAlert(); alert.messageText = failure.title; alert.informativeText = failure.message
+                    alert.addButton(withTitle: "Copy instead"); if failure.offersSettings { alert.addButton(withTitle: "Open Paste Settings…") }; alert.addButton(withTitle: "Cancel")
                     let response = alert.runModal()
                     if response == .alertFirstButtonReturn { try paste.write(payload); showNotice("Copied. Switch to your application and press ⌘V.") }
-                    else if response == .alertSecondButtonReturn { onPasteSettings?() }
+                    else if failure.offersSettings && response == .alertSecondButtonReturn { onPasteSettings?() }
                 }
             } catch is CancellationError {} catch { showNotice(error.localizedDescription) }
         }

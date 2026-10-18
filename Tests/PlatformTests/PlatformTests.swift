@@ -4,6 +4,47 @@ import ClipboardCore
 @testable import ClipboardPlatform
 
 @MainActor final class PlatformTests: XCTestCase {
+    func testAlreadyActiveDestinationDoesNotRequireAnotherActivationRequest() async throws {
+        let restored = try await PasteActivation.restore(targetPID: 42, isTerminated: { false }, frontmostPID: { 42 }, activate: { XCTFail("An active target does not need activation"); return false })
+        XCTAssertTrue(restored)
+    }
+    func testDestinationIsCheckedAfterCooperativeActivation() async throws {
+        var pid: pid_t = 1
+        var activationCount = 0
+        let restored = try await PasteActivation.restore(targetPID: 42, isTerminated: { false }, frontmostPID: { pid }, activate: { activationCount += 1; pid = 42; return true })
+        XCTAssertTrue(restored)
+        XCTAssertEqual(activationCount, 1)
+    }
+    func testDisappearingDestinationStopsPaste() async throws {
+        var terminated = false
+        let restored = try await PasteActivation.restore(targetPID: 42, isTerminated: { terminated }, frontmostPID: { 1 }, activate: { terminated = true; return true })
+        XCTAssertFalse(restored)
+    }
+
+    func testDisabledPasteDoesNotCheckPermission() async throws {
+        let coordinator = PasteCoordinator(sessionToken: "test", permissionCheck: { XCTFail("Disabled paste must not check permissions"); return false })
+        let outcome = try await coordinator.paste(.plainText("Private fixture"), enabled: false)
+        XCTAssertEqual(outcome, .disabled)
+        let failure = PasteFailurePresentation(outcome: outcome, deniedDescription: "Denied")
+        XCTAssertEqual(failure.title, "Automatic paste is turned off")
+    }
+    func testGrantedPermissionWithoutTargetIsNotPermissionFailure() async throws {
+        let coordinator = PasteCoordinator(sessionToken: "test", permissionCheck: { true })
+        let outcome = try await coordinator.paste(.plainText("Private fixture"), enabled: true)
+        XCTAssertEqual(outcome, .targetUnavailable)
+        let failure = PasteFailurePresentation(outcome: outcome, deniedDescription: "Denied")
+        XCTAssertFalse(failure.offersSettings)
+        XCTAssertEqual(failure.title, "The destination app is unavailable")
+    }
+    func testDeniedPasteNeverAttemptsTargetActivationOrClipboardWrite() async throws {
+        let coordinator = PasteCoordinator(sessionToken: "test", permissionCheck: { false })
+        let outcome = try await coordinator.paste(.plainText("Private fixture"), enabled: true)
+        XCTAssertEqual(outcome, .permissionRequired)
+        let failure = PasteFailurePresentation(outcome: outcome, deniedDescription: "Permission denied to running copy")
+        XCTAssertEqual(failure.message, "Permission denied to running copy")
+        XCTAssertTrue(failure.offersSettings)
+    }
+
     func testPastePermissionStatusUpdatesWithoutRestart() throws {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-Access-\(UUID())")
@@ -29,7 +70,7 @@ import ClipboardCore
         tabs.selectTabViewItem(withIdentifier: "Privacy")
         content.layoutSubtreeIfNeeded()
         let button = try XCTUnwrap(descendants(content).compactMap { $0 as? NSButton }.first { $0.title == "Open Accessibility Settings…" })
-        XCTAssertGreaterThan(button.bounds.width, 200)
+        XCTAssertGreaterThanOrEqual(button.bounds.width, button.fittingSize.width - 1)
         XCTAssertTrue(content.bounds.contains(button.convert(button.bounds, to: content)))
         if let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
             content.cacheDisplay(in: content.bounds, to: bitmap)

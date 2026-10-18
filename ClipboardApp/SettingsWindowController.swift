@@ -46,7 +46,7 @@ import CoreGraphics
     }
     required init?(coder: NSCoder) { fatalError() }
     func open() { NSApp.activate(ignoringOtherApps: true); showWindow(nil); window?.center(); window?.makeKeyAndOrderFront(nil); rebuild() }
-    func openPasteSettings() { open(); tabs.selectTabViewItem(withIdentifier: "Privacy"); refreshPermissionStatus() }
+    func openPasteSettings() { open(); tabs.selectTabViewItem(withIdentifier: "General"); refreshPermissionStatus() }
     func windowDidBecomeKey(_ notification: Notification) { refreshPermissionStatus() }
     @objc func refreshPermissionStatus() {
         let granted = permissionCheck()
@@ -60,7 +60,8 @@ import CoreGraphics
             PasteAccess.request(); PasteAccess.openSettings(); self.refreshPermissionStatus()
         })
         open.isEnabled = settings.isPersistent
-        return [summary, open]
+        let recheck = ActionButton("Recheck access", action: { [weak self] in self?.refreshPermissionStatus() })
+        return [summary, row([open, recheck]), note("If access is enabled but still denied, quit and reopen Clipboard. For an older grant, remove the old Accessibility entry and add the installed copy again.")]
     }
     private func page(_ name: String, _ views: [NSView]) {
         let item = NSTabViewItem(identifier: name); item.label = name

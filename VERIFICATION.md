@@ -12,7 +12,7 @@ v1.0.0 is distributed with an ad-hoc signature and explicit limitations in the r
 - Native popup layout at list/preview widths, focus-loss dismissal with draft preservation, and automatic capture resuming after starting inside an excluded app.
 - Actual AppKit representation conversion using named private pasteboards, confidential markers, unknown/explicit sources, multi-file references, self-generated write suppression, and fixture paste without event posting.
 
-The latest development run passed 27 core tests and 10 platform tests. Test output is recorded in `.build/v1-tests.log`; repeat `Scripts/test.sh` before release.
+The latest development run passed 27 core tests and 16 platform tests. Test output is recorded in `.build/paste-fix-tests.log`; repeat `Scripts/test.sh` before release.
 
 The selected-item blank-window failure was reproduced with a native fixture render. The preview background was filling an invalidation rectangle outside its view bounds. Drawing is now bounded explicitly, with a pixel-level paint-spill regression test. Native single/bulk fixture renders and compact/large resize checks pass; this does not replace full interactive UI automation.
 
@@ -48,3 +48,5 @@ Local Xcode UI automation encountered a macOS authentication requirement. UI tes
 Compact layout checks cover 40/60 pane proportions at multiple sizes, resetting a previously enlarged popup to 720 × 440 points, portrait/landscape image fitting, downsampling to a 1024-pixel edge, and releasing the image on dismissal. Native fixture renders were inspected for both image orientations and editable combined text. Performance targets still require Instruments measurements.
 
 Automatic-paste settings now expose Accessibility status and a direct System Settings link, recheck access when the app becomes active, and retain manual Copy as a fallback. Regression coverage simulates denied, granted, and disabled states without requesting real permissions or posting events.
+
+The v1.0.1 candidate separates disabled paste, permission denial, and unavailable destinations. Simulated activation tests cover already-frontmost targets, cooperative activation, and terminated destinations. Real destination-app acceptance still requires interactive confirmation; no test sends keystrokes to unrelated apps.
