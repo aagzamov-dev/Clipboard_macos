@@ -44,6 +44,7 @@ import ClipboardCore
             let history = HistoryWindowController(store: store, settings: settings, paste: paste); self.history = history
             let preferences = SettingsWindowController(settings: settings, store: store); self.preferences = preferences
             history.onToggleRecording = { [weak self] in self?.togglePause() }
+            history.onPasteSettings = { [weak preferences] in preferences?.openPasteSettings() }
             history.onSettings = { [weak preferences] in preferences?.open() }
             preferences.onHistoryChanged = { [weak history] in history?.refresh() }
             preferences.onHistoryCleared = { [weak history] includePinned in history?.historyWasCleared(includePinned: includePinned) }

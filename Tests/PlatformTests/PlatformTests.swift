@@ -4,6 +4,39 @@ import ClipboardCore
 @testable import ClipboardPlatform
 
 @MainActor final class PlatformTests: XCTestCase {
+    func testPastePermissionStatusUpdatesWithoutRestart() throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-Access-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try HistoryStore(rootURL: root)
+        let settings = SettingsStore(persistent: false)
+        try settings.update { $0.automaticPaste = true }
+        var granted = false
+        let controller = SettingsWindowController(settings: settings, store: store, permissionCheck: { granted })
+        controller.refreshPermissionStatus()
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let views = descendants(try XCTUnwrap(controller.window?.contentView))
+        XCTAssertTrue(views.compactMap { $0 as? NSButton }.contains { $0.title == "Open Accessibility Settings…" && !$0.isEnabled })
+        XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains("Permission required") })
+        granted = true
+        controller.refreshPermissionStatus()
+        XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains("Automatic paste is ready") })
+        try settings.update { $0.automaticPaste = false }
+        controller.refreshPermissionStatus()
+        XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains("Automatic paste is off") })
+        let content = try XCTUnwrap(controller.window?.contentView)
+        let tabs = try XCTUnwrap(descendants(content).compactMap { $0 as? NSTabView }.first)
+        tabs.selectTabViewItem(withIdentifier: "Privacy")
+        content.layoutSubtreeIfNeeded()
+        let button = try XCTUnwrap(descendants(content).compactMap { $0 as? NSButton }.first { $0.title == "Open Accessibility Settings…" })
+        XCTAssertGreaterThan(button.bounds.width, 200)
+        XCTAssertTrue(content.bounds.contains(button.convert(button.bounds, to: content)))
+        if let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+            content.cacheDisplay(in: content.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "/tmp/clipboard-permission-settings.png"))
+        }
+    }
+
     func testPreviewBackgroundDoesNotPaintOutsideItsBounds() throws {
         _ = NSApplication.shared
         let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 200, pixelsHigh: 200, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
@@ -26,7 +59,7 @@ import ClipboardCore
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-Layout-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try HistoryStore(rootURL: root)
-        try await store.insert(.plainText("Layout fixture"))
+        try await store.insert(.plainText("A small place for everything you copy."))
         let controller = HistoryWindowController(store: store, settings: SettingsStore(persistent: false), paste: PasteCoordinator(sessionToken: "test", testMode: true))
         let window = try XCTUnwrap(controller.window)
         XCTAssertTrue(window.styleMask.contains(.nonactivatingPanel))
@@ -49,7 +82,7 @@ import ClipboardCore
         table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         controller.tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: table))
         for _ in 0..<100 {
-            if descendants(content).compactMap({ $0 as? NSTextView }).contains(where: { $0.string == "Layout fixture" }) { break }
+            if descendants(content).compactMap({ $0 as? NSTextView }).contains(where: { $0.string == "A small place for everything you copy." }) { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         content.layoutSubtreeIfNeeded()
@@ -73,8 +106,8 @@ import ClipboardCore
         controller.updateRecordingState(.running)
         XCTAssertTrue(descendants(content).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "● Recording" })
         let editor = try XCTUnwrap(descendants(content).compactMap { $0 as? NSTextView }.first)
-        XCTAssertEqual(editor.string, "Layout fixture")
-        editor.string = "Unsaved fixture draft"
+        XCTAssertEqual(editor.string, "A small place for everything you copy.")
+        editor.string = "Good tools stay out of your way."
         controller.textDidChange(Notification(name: NSText.didChangeNotification, object: editor))
         XCTAssertEqual(controller.protectedDraftIDs.count, 1)
         window.orderFront(nil)
@@ -83,11 +116,11 @@ import ClipboardCore
         XCTAssertFalse(window.isVisible)
         controller.refresh()
         for _ in 0..<100 {
-            if editor.string == "Unsaved fixture draft" { break }
+            if editor.string == "Good tools stay out of your way." { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        XCTAssertEqual(editor.string, "Unsaved fixture draft")
-        try await store.insert(.plainText("Second fixture"))
+        XCTAssertEqual(editor.string, "Good tools stay out of your way.")
+        try await store.insert(.plainText("Ship something simple."))
         controller.refresh()
         for _ in 0..<100 {
             if table.numberOfRows == 2 { break }
@@ -96,11 +129,11 @@ import ClipboardCore
         table.selectRowIndexes(IndexSet(integersIn: 0..<2), byExtendingSelection: false)
         controller.tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: table))
         for _ in 0..<100 {
-            if editor.string.contains("Second fixture") && editor.string.contains("Unsaved fixture draft") { break }
+            if editor.string.contains("Ship something simple.") && editor.string.contains("Good tools stay out of your way.") { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertTrue(editor.isEditable)
-        XCTAssertTrue(editor.string.contains("Second fixture"))
+        XCTAssertTrue(editor.string.contains("Ship something simple."))
         for size in [NSSize(width: 660, height: 360), NSSize(width: 900, height: 560), NSSize(width: 720, height: 440)] {
             window.setContentSize(size)
             content.layoutSubtreeIfNeeded()

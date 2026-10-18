@@ -1,90 +1,82 @@
 # Clipboard
 
-A native, local-only macOS clipboard manager built with Swift 6, AppKit, and system SQLite. macOS 14 or newer. MIT licensed. No third-party runtime dependencies.
+A small, native clipboard manager for macOS. Find what you copied, edit it, and get back to work.
 
-## Build and run
+**macOS 14+ · Apple Silicon & Intel · Swift + AppKit · MIT**
 
-Open `Clipboard.xcodeproj` in Xcode 27.0 and run the shared **Clipboard** scheme, or run:
+[Download v1.0.0](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.0) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
+
+![Clipboard with an editable combined preview](docs/screenshots/text-preview.png)
+
+Native app screenshots with example clipboard content.
+
+## Quiet by design
+
+- **A compact popup.** Open with **⌥⌘V** or the menu-bar icon. Click outside to dismiss.
+- **Useful previews.** A 40% list and 60% preview in a 720 × 440-point window. Images fit without stretching the window.
+- **Edit immediately.** Select text and start typing. Copy uses your draft; **⌘S** saves it to history.
+- **Copy several entries.** Command-click or Shift-click, edit the combined text, then Copy. Original entries stay unchanged.
+- **Find and keep.** Search, filter by date/type, and pin favorites. Unpinned history expires after 30 days by default.
+- **Your Mac, your history.** No accounts, analytics, cloud sync, or background network requests. Optional password-encrypted backups.
+
+Built with native Apple frameworks and system SQLite, with no third-party runtime dependencies. History loads in bounded pages; image previews downsample to a 1024-pixel edge and release when dismissed. Performance measurements and remaining compatibility checks are documented in [Verification](VERIFICATION.md).
+
+<details>
+<summary>Image preview</summary>
+
+![A fitted image preview inside the compact popup](docs/screenshots/image-preview.png)
+
+</details>
+
+## Install
+
+1. Download **Clipboard-v1.0.0-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.0).
+2. Open it and drag **Clipboard.app** into **Applications**. A ZIP is also available.
+3. Launch Clipboard and choose **Start local history**. Recording starts automatically on future launches.
+
+**Signing:** v1.0.0 uses an ad-hoc signature and is **not Developer ID signed or notarized**. macOS may block the first launch. Review [Apple’s guidance](https://support.apple.com/en-us/102445) before deciding whether to allow it. Checksums are included with the release; source builds are available too.
+
+To update, quit the running copy before replacing the app. History stays in your Application Support folder.
+
+## Automatic paste
+
+Copy works without Accessibility access. Automatic paste is optional:
+
+1. Open **Settings → General** and enable **Automatic paste**.
+2. Choose **Open Accessibility Settings**, then allow Clipboard in **Privacy & Security → Accessibility**. If it is missing, use **+** to select the installed app in Applications.
+3. Return to Clipboard. The permission status refreshes automatically. Open your destination app, then choose Paste from Clipboard.
+
+The same setup link is available in **Settings → Privacy** and the paste fallback dialog. Clipboard sends Command-V once; the destination controls whether it accepts it.
+
+## Shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| ⌥⌘V | Toggle history; configurable in Settings |
+| ↑ / ↓, ⇧↑ / ⇧↓ | Navigate or extend selection |
+| ⌘C / ⌘⇧C | Copy from the list / copy the current entry or combined draft |
+| Enter / ⌘Enter | Paste one selected entry / the current draft |
+| ⌘S | Save an individual text draft |
+| ⌘P | Pin or unpin one entry |
+| ⌘F | Search |
+| Delete / ⌘⌫ | Delete selected history entries |
+| Escape | Clear bulk selection, close preview, then dismiss |
+
+Text fields retain normal editing shortcuts. Unsaved drafts stay in memory while the popup is dismissed. Quitting offers to save or discard them.
+
+## Privacy
+
+History is local, with private file permissions, but **the database is not encrypted**. Supported confidential markers are skipped; this is not guaranteed secret detection. Original referenced files are never deleted. Read the [privacy and backup details](docs/PRIVACY.md) before storing sensitive content.
+
+## Build and contribute
+
+Open `Clipboard.xcodeproj` with Xcode 27.0, or run:
 
 ```sh
 Scripts/build.sh
-open .build/xcode/Build/Products/Debug/Clipboard.app
-```
-
-The app lives in the menu bar. Choose **Start local history** to consent to capture. Opening the app does not capture existing clipboard contents. The initial shortcut is **Option–Command–V**; conflicts can be changed in Settings. Launch at login is off until enabled.
-
-For an isolated demo, run the Debug executable with `--fixtures`. This uses temporary history, does not start monitoring or register the global shortcut, does not persist real preferences, and writes only to a private pasteboard. Release builds ignore fixture flags.
-
-## Everyday use
-
-- Compact size: 400 × 440 points for the list, 720 × 440 with preview. The list uses 40% and preview 60% of the expanded width. Opening resets old oversized frames. Images fit proportionally inside the preview without resizing the popup.
-- Click the menu-bar icon or press the global shortcut to toggle the popup. Click outside to dismiss it; unsaved drafts remain in memory until saved, discarded, or the app quits. Right-click the fixed menu-bar icon for Settings and Quit. Recording starts automatically after initial setup on each launch; its status and Pause/Resume control appear at the top.
-- Click a row to select it and immediately edit supported text in the preview.
-- Copy/Paste uses draft text. **Command-S** saves to history; Revert restores the saved entry.
-- Each row has its own Copy button on the right. **Command-click** toggles selection; **Shift-click** selects a range.
-- Selected text, code, and links can be copied together; the separator is configurable. Images and file references are copied individually.
-- Compatible multi-selections open editable combined text. Copy uses those edits without changing original entries; Revert restores the combined text. Selection actions and date/type filters share one toolbar.
-- In the list: **Command-C** copies, **Delete / Command-Delete** requests deletion, **Command-A** selects all matching entries, **Enter** pastes, **Command-P** pins, and **Space** toggles the preview.
-- In text fields, normal text editing shortcuts remain intact. **Command-Enter** pastes the draft and **Command-Shift-C** copies the entry without selecting text.
-- Escape clears bulk selection, closes preview, then dismisses history. Quitting with drafts asks whether to save, discard, or cancel.
-
-Unpinned history expires after 30 days by default. Pinned entries survive automatic cleanup. Regular manual deletion supports Undo for 10 seconds; bulk and pinned deletion asks for confirmation. Clearing history is permanent within the app and never deletes original referenced files.
-
-## Privacy and permissions
-
-History is stored in `~/Library/Application Support/Clipboard`, with private directory/file permissions and system backup exclusion. **The local database is not encrypted.** Other processes with access to your user account may read it. FileVault is controlled by macOS, not this app.
-
-There are no accounts, analytics, crash uploads, cloud sync, link-preview fetches, or background networking. No clipboard contents, searches, file references, or backup passwords are logged by the app. The native editor disables Writing Tools, automatic completion, and automatic correction by default.
-
-Recognized concealed/transient/autogenerated/password-manager markers are skipped. Secret detection is not guaranteed. Application source markers are informational; the foreground app is never reported as a confirmed source. Exclusions also pause capture while selected apps are active, resetting the baseline when entering/leaving them. This cannot guarantee exclusion of unknown background writers.
-
-Newer macOS versions can restrict programmatic clipboard reads. If macOS denies access or requires repeated prompts, capture pauses. Adjust Clipboard’s access in System Settings, then choose **Retry clipboard access**. Existing history remains usable.
-
-Copy does not require Accessibility. Automatic paste is off until explicitly enabled. Enabling it explains and requests event-posting access. Paste restores the remembered app, verifies activation, and sends Command-V once. A sent event is not proof that the target accepted the content. Permission or activation failure offers manual Copy. No Input Monitoring, Screen Recording, or Full Disk Access is requested.
-
-App-generated clipboard writes use the current-host-only option. The app never restores an old clipboard over a newer copy. macOS or other apps may independently synchronize the original system clipboard; Clipboard does not control those services.
-
-## Backups
-
-Settings export as versioned JSON, separately from history. History exports stream versioned records and managed attachments through AppleArchive. Optional password encryption uses Apple’s scrypt/AES-CTR/HMAC profile, with a 12-character minimum and confirmation. Passwords are never stored. Unencrypted export requires an explicit warning acknowledgement.
-
-Imports validate all members, payload checksums, supported formats, and identities before one database transaction. Traversal, links, special files, missing attachments, conflicting UUIDs, invalid encryption/authentication, and excessive sizes are rejected. Identical UUID/content pairs are skipped. Original referenced files are never included or overwritten.
-
-Limits: 10 GiB expanded archive, 200,000 entries, 2 MiB text/RTF, 20 MiB encoded images, 64 megapixels, 100 file references. Drafts are limited to 8 MiB and 500 entries. Clipboard providers can allocate or delay data before the app can enforce acceptance limits. Image previews downsample to a 1024-pixel edge.
-
-Deleting history cannot guarantee forensic erasure from APFS snapshots, SSD storage, or exported backups. A recoverable storage failure never replaces existing history with an empty database.
-
-## Tests and architecture
-
-```sh
 Scripts/test.sh
 ```
 
-The local `ClipboardCore` package owns models, SQLite/FTS5, payload validation, drafts/selection, retention, attachment consistency, and archives. The root Swift package is a test harness compiling the app’s platform integration files. Integration tests use only named private pasteboards and simulated fixture paste behavior. They require a macOS login session with the pasteboard service available.
+See [Development](docs/DEVELOPMENT.md), [Release process](docs/RELEASING.md), [Changelog](CHANGELOG.md), and [verification status](VERIFICATION.md).
 
-AppKit UI tests are in `Tests/ClipboardUITests.swift`:
-
-```sh
-xcodebuild -project Clipboard.xcodeproj -scheme Clipboard \
-  -destination 'platform=macOS,arch=arm64' \
-  -derivedDataPath .build/ui-tests CODE_SIGN_IDENTITY=- test
-```
-
-macOS may require the developer to authenticate or enable UI testing. The app’s own clipboard capture and Accessibility permissions are not required for fixture tests. Do not bypass system security prompts to run automation.
-
-`Scripts/create-project.py` deterministically regenerates the checked-in Xcode project after adding native source files. Builds do not require running the generator.
-
-## Release preparation
-
-```sh
-Scripts/package.sh
-```
-
-This builds arm64 and x86_64, verifies both architectures, and creates `.build/release/Clipboard.zip` plus its SHA-256 checksum. Without credentials this is an ad-hoc local development candidate, not a notarized public release.
-
-For authorized Developer ID signing, set `CLIPBOARD_SIGN_IDENTITY` to an installed certificate identity. To submit for notarization, also set `CLIPBOARD_NOTARY_PROFILE` to an existing notarytool Keychain profile. Do not place credentials or certificates in the repository. The script never publishes a GitHub release.
-
-CI uses Xcode 27.0, commit-pinned actions, read-only validation permissions, core/private-pasteboard tests, UI-test compilation, and universal packaging. Release preparation is manual and uploads build artifacts only; no release is published automatically.
-
-See [VERIFICATION.md](VERIFICATION.md) for measured checks and remaining release gates.
-# Clipboard_macos
+[MIT License](LICENSE)

@@ -1,0 +1,65 @@
+name: Publish release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Check release version and notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' ClipboardApp/Info.plist)
+          test "$RELEASE_TAG" = "v$version"
+          test -f "docs/releases/$RELEASE_TAG.md"
+      - name: Select Xcode 27.0
+        run: sudo xcode-select --switch /Applications/Xcode_27.0.app/Contents/Developer
+      - name: Core and native integration tests
+        run: Scripts/test.sh
+      - name: Compile fixture UI tests
+        run: xcodebuild -project Clipboard.xcodeproj -scheme Clipboard -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath .build/ci-ui CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES ONLY_ACTIVE_ARCH=YES build-for-testing
+      - name: Package universal app and disk image
+        run: Scripts/package.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Clipboard-${{ github.ref_name }}
+          path: |
+            .build/release/Clipboard-${{ github.ref_name }}-universal.zip
+            .build/release/Clipboard-${{ github.ref_name }}-universal.dmg
+            .build/release/SHA256SUMS
+            .build/release/BUILD-INFO.json
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: Clipboard-${{ github.ref_name }}
+          path: dist
+      - name: Verify checksums
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS
+      - name: Publish tagged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --latest --title "Clipboard $RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md"
