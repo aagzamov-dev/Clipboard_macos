@@ -59,6 +59,7 @@ import os
     private var isOpening = false
     private var previewWidth: NSLayoutConstraint?
     var protectedDraftIDs: Set<UUID> { drafts.ids }
+    var hasUnsavedEdits: Bool { !drafts.isEmpty || combinedDraft?.hasChanges == true }
     var onSettings: (() -> Void)?
     var onPasteSettings: (() -> Void)?
     private var openingInterval: OSSignpostIntervalState?

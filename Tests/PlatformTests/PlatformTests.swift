@@ -20,6 +20,7 @@ import ClipboardCore
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertEqual(table.selectedRow, 0)
+        XCTAssertFalse(controller.hasUnsavedEdits)
         XCTAssertEqual(window.frame.width, 400, accuracy: 1)
         table.onSelectedRowClick?()
         for _ in 0..<100 {
@@ -189,6 +190,7 @@ import ClipboardCore
         editor.string = "Good tools stay out of your way."
         controller.textDidChange(Notification(name: NSText.didChangeNotification, object: editor))
         XCTAssertEqual(controller.protectedDraftIDs.count, 1)
+        XCTAssertTrue(controller.hasUnsavedEdits)
         window.orderFront(nil)
         XCTAssertTrue(window.isVisible)
         controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: window))

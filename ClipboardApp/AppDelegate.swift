@@ -46,8 +46,8 @@ import ClipboardCore
             let preferences = SettingsWindowController(settings: settings, store: store, pasteStatus: { [weak paste] in paste?.lastStatus ?? "No paste attempted." }); self.preferences = preferences
             if !fixtureMode {
                 let updates = UpdateController(); self.updates = updates
-                updates.prepareToInstall = { [weak self, weak history] install in
-                    history?.requestClose { self?.quitting = true; install() }
+                updates.prepareToInstall = { [weak history] install in
+                    history?.requestClose(completion: install)
                 }
                 preferences.updateChecksEnabled = { [weak updates] in updates?.automaticChecks ?? false }
                 preferences.onUpdateChecksChanged = { [weak updates] in updates?.automaticChecks = $0 }
@@ -196,7 +196,7 @@ import ClipboardCore
     @objc private func pause() { togglePause() }
     @objc private func quit() { history?.requestClose { [weak self] in self?.quitting = true; NSApp.terminate(nil) } }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if quitting || history == nil { return .terminateNow }
+        if quitting || history?.hasUnsavedEdits != true { return .terminateNow }
         quit(); return .terminateCancel
     }
     func applicationWillTerminate(_ notification: Notification) { shortcut?.invalidate(); cleanupTimer?.invalidate() }
