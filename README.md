@@ -36,6 +36,14 @@ Built with native Apple frameworks and system SQLite, with no third-party runtim
 
 **Signing:** v1.0.0 uses an ad-hoc signature and is **not Developer ID signed or notarized**. macOS may block the first launch. Review [Apple’s guidance](https://support.apple.com/en-us/102445) before deciding whether to allow it. Checksums are included with the release; source builds are available too.
 
+If macOS blocks the installed app because it is quarantined, first verify the download against the release checksums and make sure you trust its source. You can then remove the quarantine flag for **Clipboard only** in Terminal:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/Clipboard.app"
+```
+
+Open Clipboard again afterward. This removes the quarantine flag; it does **not** sign or notarize the app or verify that it is safe.
+
 To update, quit the running copy before replacing the app. History stays in your Application Support folder.
 
 ## Automatic paste
