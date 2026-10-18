@@ -15,13 +15,17 @@ def quoted(value): return '"' + value.replace('"', '\\"') + '"'
 def array(values): return '(' + ', '.join(values) + (',' if values else '') + ')'
 app_sources = sorted((root / 'ClipboardApp').glob('*.swift'))
 ui_sources = sorted((root / 'Tests').glob('*UITests.swift'))
+app_resources = [root / 'LICENSE', root / 'THIRD_PARTY_NOTICES.md']
+for path in app_resources:
+    obj(str(path.relative_to(root)), f'isa = PBXFileReference; lastKnownFileType = text; path = {quoted(path.name)}; sourceTree = SOURCE_ROOT;')
+    obj('build:' + path.name, f'isa = PBXBuildFile; fileRef = {uid(str(path.relative_to(root)))};')
 for path in app_sources + ui_sources:
     obj(str(path.relative_to(root)), f'isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {quoted(str(path.relative_to(root)))}; sourceTree = SOURCE_ROOT;')
     obj('build:' + path.name, f'isa = PBXBuildFile; fileRef = {uid(str(path.relative_to(root)))};')
 obj('appProduct', 'isa = PBXFileReference; explicitFileType = wrapper.application; path = Clipboard.app; sourceTree = BUILT_PRODUCTS_DIR;')
 obj('testProduct', 'isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = ClipboardUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR;')
 obj('products', f'isa = PBXGroup; name = Products; children = {array([uid("appProduct"), uid("testProduct")])}; sourceTree = "<group>";')
-obj('mainGroup', f'isa = PBXGroup; children = {array([uid(str(p.relative_to(root))) for p in app_sources + ui_sources] + [uid("products")])}; sourceTree = "<group>";')
+obj('mainGroup', f'isa = PBXGroup; children = {array([uid(str(p.relative_to(root))) for p in app_sources + ui_sources + app_resources] + [uid("products")])}; sourceTree = "<group>";')
 obj('package', 'isa = XCLocalSwiftPackageReference; relativePath = Packages/ClipboardCore;')
 obj('coreProduct', f'isa = XCSwiftPackageProductDependency; package = {uid("package")}; productName = ClipboardCore;')
 obj('coreFramework', f'isa = PBXBuildFile; productRef = {uid("coreProduct")};')
@@ -31,7 +35,7 @@ obj('sparkleFramework', f'isa = PBXBuildFile; productRef = {uid("sparkleProduct"
 for name, sources in [('app',app_sources),('test',ui_sources)]:
     obj(name+'Sources', f'isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = {array([uid("build:" + p.name) for p in sources])}; runOnlyForDeploymentPostprocessing = 0;')
     obj(name+'Frameworks', f'isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = {array([uid("coreFramework"), uid("sparkleFramework")] if name == "app" else [])}; runOnlyForDeploymentPostprocessing = 0;')
-    obj(name+'Resources', 'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;')
+    obj(name+'Resources', f'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = {array([uid("build:" + p.name) for p in app_resources] if name == "app" else [])}; runOnlyForDeploymentPostprocessing = 0;')
 obj('testProxy', f'isa = PBXContainerItemProxy; containerPortal = {uid("project")}; proxyType = 1; remoteGlobalIDString = {uid("appTarget")}; remoteInfo = Clipboard;')
 obj('testDependency', f'isa = PBXTargetDependency; target = {uid("appTarget")}; targetProxy = {uid("testProxy")};')
 for name in ['project','app','test']:
