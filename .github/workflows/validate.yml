@@ -1,0 +1,30 @@
+name: Validate native app
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Select Xcode 27.0
+        run: sudo xcode-select --switch /Applications/Xcode_27.0.app/Contents/Developer
+      - name: Core and private-pasteboard tests
+        run: Scripts/test.sh
+      - name: Build fixture UI tests
+        run: xcodebuild -project Clipboard.xcodeproj -scheme Clipboard -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath .build/ci-ui CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES ONLY_ACTIVE_ARCH=YES build-for-testing
+      - name: Package universal local build
+        run: Scripts/package.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Clipboard-universal-local-build
+          path: .build/release/Clipboard.zip*
+          if-no-files-found: error
