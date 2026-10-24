@@ -132,8 +132,8 @@ import ClipboardCore
             XCTAssertEqual(button.fittingSize.height, 36, accuracy: 1)
         }
         let generation = board.changeCount
-        table.onRowClick?(0)
-        table.onRowClick?(0)
+        table.onRowClick?(try XCTUnwrap(table.entryID?(0)))
+        table.onRowClick?(try XCTUnwrap(table.entryID?(0)))
         for _ in 0..<100 {
             if board.string(forType: .string) != nil { break }
             try await Task.sleep(for: .milliseconds(10))
@@ -169,7 +169,7 @@ import ClipboardCore
             if table.numberOfRows == 1 { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        table.onRowClick?(0)
+        table.onRowClick?(try XCTUnwrap(table.entryID?(0)))
         controller.dismissPopup()
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertNil(board.string(forType: .string))

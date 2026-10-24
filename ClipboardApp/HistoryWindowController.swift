@@ -83,7 +83,8 @@ import os
         buildUI()
         panel.command = { [weak self] in self?.handle($0) ?? false }
         table.command = { [weak self] in self?.handle($0) ?? false }
-        table.onRowClick = { [weak self] row in self?.pasteRow(row) }
+        table.entryID = { [weak self] row in self?.summary(at: row)?.id }
+        table.onRowClick = { [weak self] id in self?.pasteEntry(id) }
         NotificationCenter.default.addObserver(self, selector: #selector(applicationBecameActive), name: NSApplication.didBecomeActiveNotification, object: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -371,8 +372,8 @@ import os
         return cell
     }
     func tableViewSelectionDidChange(_ notification: Notification) { if !restoringSelection { updateSelection(openPreview: previewVisible || table.selectedRowIndexes.count > 1) } }
-    private func pasteRow(_ row: Int) {
-        guard let id = summary(at: row)?.id, !pasteInProgress else { return }
+    private func pasteEntry(_ id: UUID) {
+        guard !pasteInProgress else { return }
         selectedIDs = [id]
         pasteSelection()
     }

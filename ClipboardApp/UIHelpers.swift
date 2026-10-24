@@ -33,14 +33,16 @@ import AppKit
 @MainActor func separator() -> NSBox { let box = NSBox(); box.boxType = .separator; return box }
 @MainActor final class HistoryTable: NSTableView {
     var command: ((NSEvent) -> Bool)?
-    var onRowClick: ((Int) -> Void)?
+    var entryID: ((Int) -> UUID?)?
+    var onRowClick: ((UUID) -> Void)?
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
         let clickedRow = row(at: convert(event.locationInWindow, from: nil))
+        let clickedID = entryID?(clickedRow)
         super.mouseDown(with: event)
-        if clickedRow >= 0, event.clickCount == 1,
+        if let clickedID, event.clickCount == 1,
            event.modifierFlags.intersection([.command, .shift, .control, .option]).isEmpty {
-            onRowClick?(clickedRow)
+            onRowClick?(clickedID)
         }
     }
 
