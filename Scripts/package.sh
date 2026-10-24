@@ -20,6 +20,10 @@ fi
 )
 clipboard_architectures="$(xcrun lipo -archs "$clipboard_app/Contents/MacOS/Clipboard")"
 [[ " $clipboard_architectures " == *" arm64 "* && " $clipboard_architectures " == *" x86_64 "* ]] || { print "Missing universal architecture"; exit 1; }
+clipboard_helper="$clipboard_app/Contents/Helpers/ClipboardPasteCheck.app"
+clipboard_helper_architectures="$(xcrun lipo -archs "$clipboard_helper/Contents/MacOS/ClipboardPasteCheck")"
+[[ " $clipboard_helper_architectures " == *" arm64 "* && " $clipboard_helper_architectures " == *" x86_64 "* ]] || { print "Missing universal paste-test helper architecture"; exit 1; }
+[[ -s "$clipboard_app/Contents/Resources/AppIcon.icns" ]] || { print "Missing application icon"; exit 1; }
 print "Prepared $clipboard_zip"
 
 clipboard_version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$clipboard_app/Contents/Info.plist")

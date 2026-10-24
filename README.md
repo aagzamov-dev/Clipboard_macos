@@ -4,7 +4,7 @@ A small, native clipboard manager for macOS. Find what you copied, edit it, and 
 
 **macOS 14+ · Apple Silicon & Intel · Swift + AppKit · MIT**
 
-[Download v1.0.1](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.1) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
+[Download v1.0.2](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.2) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
 
 ![Clipboard with an editable combined preview](docs/screenshots/text-preview.png)
 
@@ -30,7 +30,7 @@ Built with AppKit and system SQLite. [Sparkle](https://sparkle-project.org) hand
 
 ## Install
 
-1. Download **Clipboard-v1.0.1-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.1).
+1. Download **Clipboard-v1.0.2-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.2).
 2. Open it and drag **Clipboard.app** into **Applications**. A ZIP is also available.
 3. Launch Clipboard and choose **Start local history**. Recording starts automatically on future launches.
 
@@ -54,7 +54,11 @@ Copy works without Accessibility access. Automatic paste is optional:
 2. Choose **Open Accessibility Settings**, then allow Clipboard in **Privacy & Security → Accessibility**. If it is missing, use **+** to select the installed app in Applications.
 3. Return to Clipboard. The permission status refreshes automatically. Open your destination app, then choose Paste from Clipboard.
 
-The same setup link is available in **Settings → Privacy** and the paste fallback dialog. Clipboard sends Command-V once; the destination controls whether it accepts it.
+**Settings → Permissions** shows Accessibility trust and Command-V event access separately, the last paste attempt, and the exact running app. **Test automatic paste…** opens a separate test app and verifies one Command-V using private test text; your real clipboard is untouched.
+
+If the Accessibility switch is on but access is still blocked, remove the old Clipboard entry, click **Show this app in Finder**, use **+** to add that exact app, enable it, then quit and reopen Clipboard. Keep one installed copy in Applications. Current releases are ad-hoc signed, so a new build can invalidate an old permission grant. Stable permissions across updates require Developer ID signing.
+
+Clipboard sends Command-V once; the destination controls whether it accepts it. Input Monitoring, Screen Recording, and Full Disk Access are not required.
 
 ## Updates
 

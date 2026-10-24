@@ -4,6 +4,66 @@ import ClipboardCore
 @testable import ClipboardPlatform
 
 @MainActor final class PlatformTests: XCTestCase {
+    func testPermissionMismatchDoesNotClaimReady() {
+        let inconsistent = PastePermissionStatus(accessibilityTrusted: false, eventPostingAllowed: true)
+        XCTAssertTrue(inconsistent.summary(enabled: true).contains("disagree"))
+        XCTAssertTrue(inconsistent.details.contains("Accessibility: Not recognized"))
+        let stale = PastePermissionStatus(accessibilityTrusted: true, eventPostingAllowed: false)
+        XCTAssertTrue(stale.summary(enabled: true).contains("Permission required"))
+        XCTAssertTrue(stale.details.contains("Command-V event access: Blocked"))
+        XCTAssertTrue(stale.summary(enabled: false).contains("off"))
+    }
+    func testSourceMustRelinquishFocusBeforePasteIsReady() async throws {
+        var checks = 0
+        let ready = try await PasteActivation.restore(targetPID: 42, isTerminated: { false }, frontmostPID: { 42 }, sourceIsActive: { checks += 1; return checks < 3 }, activate: { XCTFail("Target is already frontmost"); return false })
+        XCTAssertTrue(ready)
+        XCTAssertGreaterThanOrEqual(checks, 4)
+    }
+    func testPastePipelineCopiesPrivatelyAndDispatchesExactlyOnce() async throws {
+        _ = NSApplication.shared
+        let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
+        var events = 0, checks = 0
+        let coordinator = PasteCoordinator(sessionToken: "pipeline", permissionCheck: { checks += 1; return true }, pasteboard: board, frontmostPID: { ProcessInfo.processInfo.processIdentifier }, sourceIsActive: { false }, eventPoster: { events += 1; return true })
+        coordinator.previousApplication = .current
+        let outcome = try await coordinator.paste(.plainText("Known test payload"), enabled: true)
+        XCTAssertEqual(outcome, .pasteEventSent)
+        XCTAssertEqual(events, 1)
+        XCTAssertEqual(checks, 3)
+        XCTAssertEqual(board.string(forType: .string), "Known test payload")
+    }
+    func testPermissionRevokedDuringActivationDoesNotReplaceClipboard() async throws {
+        _ = NSApplication.shared
+        let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
+        board.setString("Keep previous test text", forType: .string)
+        var checks = 0
+        let coordinator = PasteCoordinator(sessionToken: "pipeline", permissionCheck: { checks += 1; return checks == 1 }, pasteboard: board, frontmostPID: { ProcessInfo.processInfo.processIdentifier }, sourceIsActive: { false }, eventPoster: { XCTFail("Revoked permission must not send events"); return true })
+        coordinator.previousApplication = .current
+        let outcome = try await coordinator.paste(.plainText("New test text"), enabled: true)
+        XCTAssertEqual(outcome, .permissionRequired)
+        XCTAssertEqual(board.string(forType: .string), "Keep previous test text")
+    }
+    func testPermissionRevokedAfterCopyDoesNotDispatch() async throws {
+        _ = NSApplication.shared
+        let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
+        var checks = 0
+        let coordinator = PasteCoordinator(sessionToken: "pipeline", permissionCheck: { checks += 1; return checks < 3 }, pasteboard: board, frontmostPID: { ProcessInfo.processInfo.processIdentifier }, sourceIsActive: { false }, eventPoster: { XCTFail("Revoked permission must not send events"); return true })
+        coordinator.previousApplication = .current
+        let outcome = try await coordinator.paste(.plainText("New test text"), enabled: true)
+        XCTAssertEqual(outcome, .permissionRequired)
+        XCTAssertTrue(coordinator.lastStatus.contains("Paste manually"))
+    }
+    func testEventCreationFailureIsReportedWithoutRetry() async throws {
+        _ = NSApplication.shared
+        let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
+        var events = 0
+        let coordinator = PasteCoordinator(sessionToken: "pipeline", permissionCheck: { true }, pasteboard: board, frontmostPID: { ProcessInfo.processInfo.processIdentifier }, sourceIsActive: { false }, eventPoster: { events += 1; return false })
+        coordinator.previousApplication = .current
+        let outcome = try await coordinator.paste(.plainText("Test text"), enabled: true)
+        XCTAssertEqual(outcome, .failed, coordinator.lastStatus)
+        XCTAssertEqual(events, 1)
+        XCTAssertFalse(coordinator.lastStatus.contains("sent once"))
+    }
+
     func testPreselectedFirstRowOpensPreviewAndSurvivesCaptureRefresh() async throws {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-FirstClick-\(UUID())")

@@ -20,7 +20,7 @@ Scripts/package.sh
 
 Artifacts are written under `.build/release`. `Clipboard.zip` remains available as a local compatibility filename; publish the versioned files. `BUILD-INFO.json` records the exact Git commit and whether the checkout was clean.
 
-The script supports an installed Developer ID identity via `CLIPBOARD_SIGN_IDENTITY` and an existing notarytool Keychain profile via `CLIPBOARD_NOTARY_PROFILE`. It signs with Hardened Runtime, notarizes and staples when those are configured. Keep certificates, passwords, private keys, and Keychain data out of Git. Signed releases require an appropriately provisioned trusted build host and release notes updated to match their signing status.
+The script supports an installed Developer ID identity via `CLIPBOARD_SIGN_IDENTITY` and an existing notarytool Keychain profile via `CLIPBOARD_NOTARY_PROFILE`. It signs the nested paste-test helper and Sparkle components before the containing app. It signs with Hardened Runtime, notarizes and staples when those are configured. Keep certificates, passwords, private keys, and Keychain data out of Git. Signed releases require an appropriately provisioned trusted build host and release notes updated to match their signing status.
 
 See [Verification](../VERIFICATION.md) for uncompleted runtime and performance checks. Never describe pending measurements as certified results.
 

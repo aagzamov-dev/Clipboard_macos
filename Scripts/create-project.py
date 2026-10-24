@@ -15,17 +15,17 @@ def quoted(value): return '"' + value.replace('"', '\\"') + '"'
 def array(values): return '(' + ', '.join(values) + (',' if values else '') + ')'
 app_sources = sorted((root / 'ClipboardApp').glob('*.swift'))
 ui_sources = sorted((root / 'Tests').glob('*UITests.swift'))
-app_resources = [root / 'LICENSE', root / 'THIRD_PARTY_NOTICES.md']
+app_resources = [root / 'LICENSE', root / 'THIRD_PARTY_NOTICES.md', root / 'ClipboardApp/Resources/AppIcon.icns']
 for path in app_resources:
-    obj(str(path.relative_to(root)), f'isa = PBXFileReference; lastKnownFileType = text; path = {quoted(path.name)}; sourceTree = SOURCE_ROOT;')
+    obj(str(path.relative_to(root)), f'isa = PBXFileReference; lastKnownFileType = text; path = {quoted(str(path.relative_to(root)))}; sourceTree = SOURCE_ROOT;')
     obj('build:' + path.name, f'isa = PBXBuildFile; fileRef = {uid(str(path.relative_to(root)))};')
 for path in app_sources + ui_sources:
     obj(str(path.relative_to(root)), f'isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {quoted(str(path.relative_to(root)))}; sourceTree = SOURCE_ROOT;')
     obj('build:' + path.name, f'isa = PBXBuildFile; fileRef = {uid(str(path.relative_to(root)))};')
 obj('appProduct', 'isa = PBXFileReference; explicitFileType = wrapper.application; path = Clipboard.app; sourceTree = BUILT_PRODUCTS_DIR;')
 obj('testProduct', 'isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = ClipboardUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR;')
-obj('products', f'isa = PBXGroup; name = Products; children = {array([uid("appProduct"), uid("testProduct")])}; sourceTree = "<group>";')
-obj('mainGroup', f'isa = PBXGroup; children = {array([uid(str(p.relative_to(root))) for p in app_sources + ui_sources + app_resources] + [uid("products")])}; sourceTree = "<group>";')
+obj('products', f'isa = PBXGroup; name = Products; children = {array([uid("appProduct"), uid("testProduct"), uid("helperProduct")])}; sourceTree = "<group>";')
+obj('mainGroup', f'isa = PBXGroup; children = {array([uid(str(p.relative_to(root))) for p in app_sources + ui_sources + app_resources] + [uid("products"),uid("helperFile")])}; sourceTree = "<group>";')
 obj('package', 'isa = XCLocalSwiftPackageReference; relativePath = Packages/ClipboardCore;')
 obj('coreProduct', f'isa = XCSwiftPackageProductDependency; package = {uid("package")}; productName = ClipboardCore;')
 obj('coreFramework', f'isa = PBXBuildFile; productRef = {uid("coreProduct")};')
@@ -48,9 +48,23 @@ for name in ['project','app','test']:
         if name == 'test': settings.update({'ENABLE_HARDENED_RUNTIME':'NO','PRODUCT_NAME':'ClipboardUITests','PRODUCT_BUNDLE_IDENTIFIER':'local.clipboard.ClipboardUITests','GENERATE_INFOPLIST_FILE':'YES','TEST_TARGET_NAME':'Clipboard'})
         configs.append(obj(name+config, 'isa = XCBuildConfiguration; name = '+config+'; buildSettings = {'+' '.join(k+' = '+quoted(v)+';' for k,v in settings.items())+'};'))
     obj(name+'Configs', f'isa = XCConfigurationList; buildConfigurations = {array(configs)}; defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
-obj('appTarget', f'isa = PBXNativeTarget; buildConfigurationList = {uid("appConfigs")}; buildPhases = {array([uid("appSources"),uid("appFrameworks"),uid("appResources")])}; buildRules = (); dependencies = (); name = Clipboard; packageProductDependencies = {array([uid("coreProduct"),uid("sparkleProduct")])}; productName = Clipboard; productReference = {uid("appProduct")}; productType = "com.apple.product-type.application";')
+obj('appTarget', f'isa = PBXNativeTarget; buildConfigurationList = {uid("appConfigs")}; buildPhases = {array([uid("appSources"),uid("appFrameworks"),uid("appResources"),uid("helperCopy")])}; buildRules = (); dependencies = {array([uid("helperDependency")])}; name = Clipboard; packageProductDependencies = {array([uid("coreProduct"),uid("sparkleProduct")])}; productName = Clipboard; productReference = {uid("appProduct")}; productType = "com.apple.product-type.application";')
 obj('testTarget', f'isa = PBXNativeTarget; buildConfigurationList = {uid("testConfigs")}; buildPhases = {array([uid("testSources"),uid("testFrameworks"),uid("testResources")])}; buildRules = (); dependencies = {array([uid("testDependency")])}; name = ClipboardUITests; productName = ClipboardUITests; productReference = {uid("testProduct")}; productType = "com.apple.product-type.bundle.ui-testing";')
-obj('project', f'isa = PBXProject; attributes = {{ LastUpgradeCheck = 2700; }}; buildConfigurationList = {uid("projectConfigs")}; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = {uid("mainGroup")}; productRefGroup = {uid("products")}; projectDirPath = ""; projectRoot = ""; packageReferences = {array([uid("package"),uid("sparklePackage")])}; targets = {array([uid("appTarget"),uid("testTarget")])};')
+obj('helperFile', 'isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteCheck/main.swift; sourceTree = SOURCE_ROOT;')
+obj('helperBuild', f'isa = PBXBuildFile; fileRef = {uid("helperFile")};')
+obj('helperProduct', 'isa = PBXFileReference; explicitFileType = wrapper.application; path = ClipboardPasteCheck.app; sourceTree = BUILT_PRODUCTS_DIR;')
+obj('helperSources', f'isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = {array([uid("helperBuild")])}; runOnlyForDeploymentPostprocessing = 0;')
+obj('helperFrameworks', 'isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;')
+helper_configs = []
+for config in ['Debug', 'Release']:
+    helper_configs.append(obj('helper'+config, f'isa = XCBuildConfiguration; name = {config}; buildSettings = {{ MACOSX_DEPLOYMENT_TARGET = 14.0; SDKROOT = macosx; SWIFT_VERSION = 6.0; SWIFT_STRICT_CONCURRENCY = complete; PRODUCT_NAME = ClipboardPasteCheck; PRODUCT_BUNDLE_IDENTIFIER = local.clipboard.Clipboard.PasteCheck; INFOPLIST_FILE = PasteCheck/Info.plist; CODE_SIGN_STYLE = Automatic; SWIFT_OPTIMIZATION_LEVEL = "-O"; ENABLE_HARDENED_RUNTIME = YES; }};'))
+obj('helperConfigs', f'isa = XCConfigurationList; buildConfigurations = {array(helper_configs)}; defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
+obj('helperTarget', f'isa = PBXNativeTarget; buildConfigurationList = {uid("helperConfigs")}; buildPhases = {array([uid("helperSources"), uid("helperFrameworks")])}; buildRules = (); dependencies = (); name = ClipboardPasteCheck; productName = ClipboardPasteCheck; productReference = {uid("helperProduct")}; productType = "com.apple.product-type.application";')
+obj('helperProxy', f'isa = PBXContainerItemProxy; containerPortal = {uid("project")}; proxyType = 1; remoteGlobalIDString = {uid("helperTarget")}; remoteInfo = ClipboardPasteCheck;')
+obj('helperDependency', f'isa = PBXTargetDependency; target = {uid("helperTarget")}; targetProxy = {uid("helperProxy")};')
+obj('helperEmbed', f'isa = PBXBuildFile; fileRef = {uid("helperProduct")}; settings = {{ ATTRIBUTES = (CodeSignOnCopy,); }};')
+obj('helperCopy', f'isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = Contents/Helpers; dstSubfolderSpec = 1; files = {array([uid("helperEmbed")])}; name = "Embed Paste Check"; runOnlyForDeploymentPostprocessing = 0;')
+obj('project', f'isa = PBXProject; attributes = {{ LastUpgradeCheck = 2700; }}; buildConfigurationList = {uid("projectConfigs")}; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = {uid("mainGroup")}; productRefGroup = {uid("products")}; projectDirPath = ""; projectRoot = ""; packageReferences = {array([uid("package"),uid("sparklePackage")])}; targets = {array([uid("appTarget"),uid("testTarget"),uid("helperTarget")])};')
 (project/'project.pbxproj').write_text('// !$*UTF8*$!\n{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {\n'+'\n'.join(objects)+'\n}; rootObject = '+uid('project')+'; }\n')
 def ref(target, product, name): return f'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{uid(target)}" BuildableName="{product}" BlueprintName="{name}" ReferencedContainer="container:Clipboard.xcodeproj"/>'
 appref=ref('appTarget','Clipboard.app','Clipboard')

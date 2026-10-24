@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.2] — 2026-10-24
+
+- Add a minimal clipboard app icon with all macOS icon sizes.
+- Show Accessibility trust and Command-V event access separately, refresh while Settings is active, and open paste failures directly on Permissions.
+- Explain stale ad-hoc permission grants and reveal the exact running app in Finder for reauthorization.
+- Add an isolated cross-app paste test that uses a named private pasteboard and never reads or replaces the user's clipboard.
+- Wait until Clipboard relinquishes focus and the destination remains frontmost before pasting; recheck access during the operation and send at most one paste command.
+- Retain signed GitHub updates with version 1.0.2, build 5.
+
 ## [1.0.1] — 2026-10-18
 
 - Separate disabled automatic paste, missing event-posting permission, and unavailable destination failures.
@@ -30,3 +39,5 @@ Distribution: ad-hoc signed; not Developer ID signed or notarized. Full UI autom
 [1.0.0]: https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.0
 
 [1.0.1]: https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.1
+
+[1.0.2]: https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.2

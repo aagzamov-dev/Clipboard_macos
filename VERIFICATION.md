@@ -1,6 +1,6 @@
 # Verification and release gates
 
-v1.0.1 is distributed with an ad-hoc signature and explicit limitations in the release notes. Developer ID signing/notarization, full runtime compatibility coverage, authenticated UI automation, and Instruments performance certification remain outstanding. Building successfully does not establish those results.
+v1.0.2 is distributed with an ad-hoc signature and explicit limitations in the release notes. Developer ID signing/notarization, full runtime compatibility coverage, authenticated UI automation, and Instruments performance certification remain outstanding. Building successfully does not establish those results.
 
 ## Automated coverage
 
@@ -12,7 +12,7 @@ v1.0.1 is distributed with an ad-hoc signature and explicit limitations in the r
 - Native popup layout at list/preview widths, focus-loss dismissal with draft preservation, and automatic capture resuming after starting inside an excluded app.
 - Actual AppKit representation conversion using named private pasteboards, confidential markers, unknown/explicit sources, multi-file references, self-generated write suppression, and fixture paste without event posting.
 
-The latest development run passed 27 core tests and 17 platform tests. Test output is recorded in `/tmp/clipboard-update-tests.log`; repeat `Scripts/test.sh` before release.
+The latest development run passed 27 core tests and 23 platform tests. Test output is recorded in `/tmp/clipboard-v102-tests.log`; repeat `Scripts/test.sh` before release.
 
 The selected-item blank-window failure was reproduced with a native fixture render. The preview background was filling an invalidation rectangle outside its view bounds. Drawing is now bounded explicitly, with a pixel-level paint-spill regression test. Native single/bulk fixture renders and compact/large resize checks pass; this does not replace full interactive UI automation.
 
@@ -62,3 +62,13 @@ Regression coverage checks clicking the initially selected row and preserving th
 An actual future-version installation/relaunch and Intel/macOS 14 runtime smoke tests remain pending. Universal compilation and signed-feed checks do not substitute for these checks. Performance targets remain unmeasured.
 
 Local candidate verification accepted the valid feed and ZIP signatures and rejected modified copies of both. The complete nested app signature, universal arm64/x86_64 binaries, ZIP/DMG checksums, and fixture UI-test compilation passed.
+
+## v1.0.2 permissions and icon
+
+New tests cover conflicting Accessibility/event-posting states, waiting for the source app to relinquish activation, a complete successful paste pipeline on a private board with simulated event dispatch, revocation before/after clipboard preparation, and event creation failure without retries. Automated tests do not post keystrokes to unrelated apps or read the developer's general clipboard.
+
+The bundled paste-test app provides a separate explicit live check: a named private clipboard carries known test text; the receiver confirms the paste action and text through a private temporary result file. The main app sends only one command, terminates its helper, releases the named board, and removes the temporary files. A successful live result establishes delivery to that test app, not acceptance by every destination app.
+
+The installed v1.0.1 designated requirement is tied to code hashes and no Developer ID identity is available locally. Reauthorization after an ad-hoc update remains necessary on systems where macOS invalidates the old grant. Settings now states this limit instead of presenting an enabled Accessibility switch as proof of access.
+
+The icon is generated at native sizes and bundled as AppIcon.icns. Both the paste helper and icon are checked in the release bundle. The user requested delivery through the existing updater instead of installing a local test copy. Live v1.0.2 paste verification remains unconfirmed; the explicit Permissions test is available after updating.
