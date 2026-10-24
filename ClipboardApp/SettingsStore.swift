@@ -18,7 +18,6 @@ import ClipboardCore
     func importSettings(_ data: Data) throws {
         var imported = try AppSettings.decode(data)
         imported.onboardingComplete = value.onboardingComplete
-        imported.automaticPaste = value.automaticPaste
         imported.lastCleanup = nil
         try update { $0 = imported }
     }

@@ -4,7 +4,7 @@ A small, native clipboard manager for macOS. Find what you copied, edit it, and 
 
 **macOS 14+ · Apple Silicon & Intel · Swift + AppKit · MIT**
 
-[Download v1.0.4](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.4) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
+[Download v1.0.5](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.5) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
 
 ![Clipboard with an editable combined preview](docs/screenshots/text-preview.png)
 
@@ -31,7 +31,7 @@ Built with AppKit and system SQLite. [Sparkle](https://sparkle-project.org) hand
 
 ## Install
 
-1. Download **Clipboard-v1.0.4-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.4).
+1. Download **Clipboard-v1.0.5-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.5).
 2. Open it and drag **Clipboard.app** into **Applications**. A ZIP is also available.
 3. Launch Clipboard and choose **Start local history**. Recording starts automatically on future launches.
 
@@ -49,11 +49,10 @@ To update, quit the running copy before replacing the app. History stays in your
 
 ## Automatic paste
 
-Copy works without Accessibility access. Automatic paste is optional:
+Choosing a history item automatically pastes it into your previous app. There is no separate app toggle or confirmation. Copy works without Accessibility access.
 
-1. Open **Settings → General** and enable **Automatic paste**.
-2. Choose **Open Accessibility Settings**, then allow Clipboard in **Privacy & Security → Accessibility**. If it is missing, use **+** to select the installed app in Applications.
-3. Return to Clipboard. The permission status refreshes automatically. Open your destination app, then choose Paste from Clipboard.
+1. Open **Settings → Permissions → Open Accessibility Settings**, then allow Clipboard in **Privacy & Security → Accessibility**. If it is missing, use **+** to select the installed app in Applications.
+2. Return to Clipboard. The permission status refreshes automatically. Open your destination app, then choose an item from Clipboard.
 
 **Settings → Permissions** shows Accessibility trust and Command-V event access separately, the last paste attempt, and the exact running app. **Test automatic paste…** opens a separate test app and verifies one Command-V using private test text; your real clipboard is untouched.
 

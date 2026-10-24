@@ -570,8 +570,8 @@ import os
                 let payload = try await preparedPayload(ids: ids)
                 try Task.checkCancellation()
                 guard session == popupSession else { return }
-                if settings.value.automaticPaste { dismissPopup(cancelAction: false) }
-                let result = try await paste.paste(payload, enabled: settings.value.automaticPaste)
+                dismissPopup(cancelAction: false)
+                let result = try await paste.paste(payload)
                 try Task.checkCancellation()
                 pasteInProgress = false
                 switch result {

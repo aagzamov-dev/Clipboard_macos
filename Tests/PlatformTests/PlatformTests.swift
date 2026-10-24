@@ -6,12 +6,11 @@ import ClipboardCore
 @MainActor final class PlatformTests: XCTestCase {
     func testPermissionMismatchDoesNotClaimReady() {
         let inconsistent = PastePermissionStatus(accessibilityTrusted: false, eventPostingAllowed: true)
-        XCTAssertTrue(inconsistent.summary(enabled: true).contains("disagree"))
+        XCTAssertTrue(inconsistent.summary.contains("disagree"))
         XCTAssertTrue(inconsistent.details.contains("Accessibility: Not recognized"))
         let stale = PastePermissionStatus(accessibilityTrusted: true, eventPostingAllowed: false)
-        XCTAssertTrue(stale.summary(enabled: true).contains("Permission required"))
+        XCTAssertTrue(stale.summary.contains("Permission required"))
         XCTAssertTrue(stale.details.contains("Command-V event access: Blocked"))
-        XCTAssertTrue(stale.summary(enabled: false).contains("off"))
     }
     func testSourceMustRelinquishFocusBeforePasteIsReady() async throws {
         var checks = 0
@@ -25,7 +24,7 @@ import ClipboardCore
         var events = 0, checks = 0
         let coordinator = PasteCoordinator(sessionToken: "pipeline", permissionCheck: { checks += 1; return true }, pasteboard: board, frontmostPID: { ProcessInfo.processInfo.processIdentifier }, sourceIsActive: { false }, eventPoster: { events += 1; return true })
         coordinator.previousApplication = .current
-        let outcome = try await coordinator.paste(.plainText("Known test payload"), enabled: true)
+        let outcome = try await coordinator.paste(.plainText("Known test payload"))
         XCTAssertEqual(outcome, .pasteEventSent)
         XCTAssertEqual(events, 1)
         XCTAssertEqual(checks, 3)
@@ -38,7 +37,7 @@ import ClipboardCore
         var checks = 0
         let coordinator = PasteCoordinator(sessionToken: "pipeline", permissionCheck: { checks += 1; return checks == 1 }, pasteboard: board, frontmostPID: { ProcessInfo.processInfo.processIdentifier }, sourceIsActive: { false }, eventPoster: { XCTFail("Revoked permission must not send events"); return true })
         coordinator.previousApplication = .current
-        let outcome = try await coordinator.paste(.plainText("New test text"), enabled: true)
+        let outcome = try await coordinator.paste(.plainText("New test text"))
         XCTAssertEqual(outcome, .permissionRequired)
         XCTAssertEqual(board.string(forType: .string), "Keep previous test text")
     }
@@ -48,7 +47,7 @@ import ClipboardCore
         var checks = 0
         let coordinator = PasteCoordinator(sessionToken: "pipeline", permissionCheck: { checks += 1; return checks < 3 }, pasteboard: board, frontmostPID: { ProcessInfo.processInfo.processIdentifier }, sourceIsActive: { false }, eventPoster: { XCTFail("Revoked permission must not send events"); return true })
         coordinator.previousApplication = .current
-        let outcome = try await coordinator.paste(.plainText("New test text"), enabled: true)
+        let outcome = try await coordinator.paste(.plainText("New test text"))
         XCTAssertEqual(outcome, .permissionRequired)
         XCTAssertTrue(coordinator.lastStatus.contains("Paste manually"))
     }
@@ -58,7 +57,7 @@ import ClipboardCore
         var events = 0
         let coordinator = PasteCoordinator(sessionToken: "pipeline", permissionCheck: { true }, pasteboard: board, frontmostPID: { ProcessInfo.processInfo.processIdentifier }, sourceIsActive: { false }, eventPoster: { events += 1; return false })
         coordinator.previousApplication = .current
-        let outcome = try await coordinator.paste(.plainText("Test text"), enabled: true)
+        let outcome = try await coordinator.paste(.plainText("Test text"))
         XCTAssertEqual(outcome, .failed, coordinator.lastStatus)
         XCTAssertEqual(events, 1)
         XCTAssertFalse(coordinator.lastStatus.contains("sent once"))
@@ -209,17 +208,9 @@ import ClipboardCore
         XCTAssertFalse(restored)
     }
 
-    func testDisabledPasteDoesNotCheckPermission() async throws {
-        let coordinator = PasteCoordinator(sessionToken: "test", permissionCheck: { XCTFail("Disabled paste must not check permissions"); return false })
-        let outcome = try await coordinator.paste(.plainText("Private fixture"), enabled: false)
-        XCTAssertEqual(outcome, .disabled)
-        XCTAssertEqual(coordinator.lastStatus, "Stopped: automatic paste is off.")
-        let failure = PasteFailurePresentation(outcome: outcome, deniedDescription: "Denied")
-        XCTAssertEqual(failure.title, "Automatic paste is turned off")
-    }
     func testGrantedPermissionWithoutTargetIsNotPermissionFailure() async throws {
         let coordinator = PasteCoordinator(sessionToken: "test", permissionCheck: { true })
-        let outcome = try await coordinator.paste(.plainText("Private fixture"), enabled: true)
+        let outcome = try await coordinator.paste(.plainText("Private fixture"))
         XCTAssertEqual(outcome, .targetUnavailable)
         XCTAssertEqual(coordinator.lastStatus, "Stopped: no live destination app was remembered.")
         let failure = PasteFailurePresentation(outcome: outcome, deniedDescription: "Denied")
@@ -228,7 +219,7 @@ import ClipboardCore
     }
     func testDeniedPasteNeverAttemptsTargetActivationOrClipboardWrite() async throws {
         let coordinator = PasteCoordinator(sessionToken: "test", permissionCheck: { false })
-        let outcome = try await coordinator.paste(.plainText("Private fixture"), enabled: true)
+        let outcome = try await coordinator.paste(.plainText("Private fixture"))
         XCTAssertEqual(outcome, .permissionRequired)
         XCTAssertEqual(coordinator.lastStatus, "Stopped: macOS denied event-posting access to this copy.")
         let failure = PasteFailurePresentation(outcome: outcome, deniedDescription: "Permission denied to running copy")
@@ -242,7 +233,6 @@ import ClipboardCore
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try HistoryStore(rootURL: root)
         let settings = SettingsStore(persistent: false)
-        try settings.update { $0.automaticPaste = true }
         var granted = false
         let controller = SettingsWindowController(settings: settings, store: store, permissionCheck: { granted })
         controller.refreshPermissionStatus()
@@ -253,9 +243,7 @@ import ClipboardCore
         granted = true
         controller.refreshPermissionStatus()
         XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains("Automatic paste is ready") })
-        try settings.update { $0.automaticPaste = false }
-        controller.refreshPermissionStatus()
-        XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains("Automatic paste is off") })
+        XCTAssertFalse(views.compactMap { $0 as? NSButton }.contains { $0.title == "Enable automatic paste" })
         let content = try XCTUnwrap(controller.window?.contentView)
         let tabs = try XCTUnwrap(descendants(content).compactMap { $0 as? NSTabView }.first)
         XCTAssertTrue(tabs.tabViewItems.contains { $0.identifier as? String == "Permissions" })
@@ -505,7 +493,7 @@ import ClipboardCore
     }
     func testFixturePasteUsesPrivateBoardWithoutEventPosting() async throws {
         let coordinator = PasteCoordinator(sessionToken: "test", testMode: true)
-        let result = try await coordinator.paste(.plainText("fixture"), enabled: false)
+        let result = try await coordinator.paste(.plainText("fixture"))
         if case .copied = result {} else { XCTFail("Fixture paste must not post events") }
     }
 }

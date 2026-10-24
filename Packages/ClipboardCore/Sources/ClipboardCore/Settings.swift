@@ -11,7 +11,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var pinnedFirst = false
     public var appearance = "System"
     public var activeDisplay = true
-    public var automaticPaste = false
     public var pollingInterval = 0.5
     public var excludedApps: [String] = []
     public var mergeSeparator = "\n\n"

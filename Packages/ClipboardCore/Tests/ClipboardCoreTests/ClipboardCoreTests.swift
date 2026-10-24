@@ -185,6 +185,16 @@ import CSQLite
             do { _ = try await importer.prepareImport(from: damaged, password: password); XCTFail("Expected tampering failure") } catch {}
         }
     }
+    func testLegacyDisabledPasteSettingDoesNotPreventLoadingPreferences() throws {
+        var original = AppSettings()
+        original.appearance = "Dark"
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        legacy["automaticPaste"] = false
+        let decoded = try AppSettings.decode(JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertEqual(decoded, original)
+        let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(decoded)) as? [String: Any])
+        XCTAssertNil(saved["automaticPaste"])
+    }
     func testSettingsValidation() throws {
         var settings = AppSettings(); XCTAssertEqual(settings.retentionDays, 30)
         settings.retentionDays = -1; XCTAssertThrowsError(try settings.validate())
