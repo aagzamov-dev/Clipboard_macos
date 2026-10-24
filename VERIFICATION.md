@@ -71,4 +71,4 @@ The bundled paste-test app provides a separate explicit live check: a named priv
 
 The installed v1.0.1 designated requirement is tied to code hashes and no Developer ID identity is available locally. Reauthorization after an ad-hoc update remains necessary on systems where macOS invalidates the old grant. Settings now states this limit instead of presenting an enabled Accessibility switch as proof of access.
 
-The icon is generated at native sizes and bundled as AppIcon.icns. Both the paste helper and icon are checked in the release bundle. Live v1.0.2 paste verification is awaiting the user granting the exact local build access and running the Permissions test.
+The icon is generated at native sizes and bundled as AppIcon.icns. Both the paste helper and icon are checked in the release bundle. The user requested delivery through the existing updater instead of installing a local test copy. Live v1.0.2 paste verification remains unconfirmed; the explicit Permissions test is available after updating.
