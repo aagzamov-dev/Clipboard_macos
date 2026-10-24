@@ -31,7 +31,7 @@ import ClipboardCore
             target = app
             let coordinator = PasteCoordinator(sessionToken: sessionToken, pasteboard: board)
             coordinator.previousApplication = app
-            let outcome = try await coordinator.paste(.plainText("Clipboard paste test"), enabled: true)
+            let outcome = try await coordinator.paste(.plainText("Clipboard paste test"))
             guard outcome == .pasteEventSent else { return "Test stopped. \(coordinator.lastStatus)" }
             let deadline = ContinuousClock.now + .seconds(3)
             repeat {

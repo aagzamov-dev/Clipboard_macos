@@ -52,10 +52,9 @@ import Security
         board.prepareForNewContents(with: [.currentHostOnly])
         guard board.writeObjects(items) else { throw CoreError.invalidData }
     }
-    func paste(_ snapshot: ClipboardSnapshot, enabled: Bool) async throws -> PasteOutcome {
+    func paste(_ snapshot: ClipboardSnapshot) async throws -> PasteOutcome {
         try Task.checkCancellation()
         if testMode { try write(snapshot); report("Fixture copied privately; no event sent."); return .copied }
-        guard enabled else { report("Stopped: automatic paste is off."); return .disabled }
         guard permissionCheck() else { report("Stopped: macOS denied event-posting access to this copy."); return .permissionRequired }
         guard let target = previousApplication, !target.isTerminated else { report("Stopped: no live destination app was remembered."); return .targetUnavailable }
         report("Permission allowed. Restoring \(target.localizedName ?? "destination")…")
@@ -122,8 +121,7 @@ struct PastePermissionStatus: Equatable {
     var details: String {
         "Accessibility: \(accessibilityTrusted ? "Allowed" : "Not recognized")\nCommand-V event access: \(eventPostingAllowed ? "Allowed" : "Blocked")"
     }
-    func summary(enabled: Bool) -> String {
-        if !enabled { return "Automatic paste is off. Enable it below; macOS access is a separate setting." }
+    var summary: String {
         if accessibilityTrusted && eventPostingAllowed { return "Automatic paste is ready. Permission checks passed; the destination must still accept Command-V." }
         if !eventPostingAllowed { return "Permission required: Command-V is blocked for this copy of Clipboard." }
         return "Permission checks disagree. Restart Clipboard; if paste still fails, renew the Accessibility entry for this exact copy."
@@ -136,10 +134,6 @@ struct PasteFailurePresentation {
     let offersSettings: Bool
     init(outcome: PasteOutcome, deniedDescription: String) {
         switch outcome {
-        case .disabled:
-            title = "Automatic paste is turned off"
-            message = "Enable automatic paste in Clipboard Settings → Permissions. Your macOS permission and this app setting are separate. You can still copy and paste manually."
-            offersSettings = true
         case .permissionRequired:
             title = "macOS is blocking automatic paste"
             message = deniedDescription

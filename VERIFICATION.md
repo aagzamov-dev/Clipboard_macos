@@ -84,3 +84,9 @@ New regression tests cover independent Preview/Copy actions, duplicate-click sup
 Restart Clipboard is available in permission controls and returns to Permissions after relaunch. A private readiness pipe prevents the parent from quitting before its helper is ready. The helper runs before AppKit application initialization, verifies its parent PID, waits for that process to exit, then asks Launch Services to open the same bundle once. A timeout leaves the original process alone and does not open a duplicate. Unsaved drafts use the existing close-confirmation flow; active archive operations and paste tests block the restart button.
 
 Six targeted regression tests exercise button routing/busy state, parent validation, readiness failure, delayed exit, timeout, and failed launch without retry. These use injected process checks and launch callbacks; they do not restart the running app. App/UI-test compilation is separate from live relaunch verification. Full tests and universal packaging run remotely. This change does not solve the ad-hoc signing identity limitation; Developer ID credentials are deferred at the user's request.
+
+## v1.0.5 automatic paste by default
+
+The internal automatic-paste preference, enable switch, and confirmation dialog were removed. History-item paste now checks macOS event-posting permission directly. Legacy settings containing `automaticPaste: false` decode without losing other preferences; that obsolete field is omitted on subsequent settings writes. Copy and private fixture behavior remain unchanged.
+
+Local verification passed 28 core and 31 platform tests and the Release app build. Coverage includes legacy preference decoding, absence of the enable switch, denied/revoked access, and single simulated event dispatch. No real paste event was sent to user apps. Release CI remains responsible for universal packaging, fixture UI-test compilation, and signed-update verification.
