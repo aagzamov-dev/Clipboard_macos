@@ -10,6 +10,7 @@ import ClipboardCore
     private var monitor: ClipboardMonitor?
     private var shortcut: GlobalShortcut?
     private var paste: PasteCoordinator?
+    private var pasteCheck: PasteCheckController?
     private var cleanupTimer: Timer?
     private var manuallyPaused = false
     private var blocked: MonitorState?
@@ -53,6 +54,17 @@ import ClipboardCore
                 preferences.onUpdateChecksChanged = { [weak updates] in updates?.automaticChecks = $0 }
                 preferences.onCheckForUpdates = { [weak self] in self?.checkForUpdates(nil) }
                 preferences.canCheckForUpdates = { [weak updates] in updates?.canCheck ?? false }
+            }
+            if !fixtureMode {
+                let check = PasteCheckController(sessionToken: monitor.sessionToken); pasteCheck = check
+                preferences.onPasteTest = { [weak check, weak preferences] in
+                    preferences?.showPasteTestResult("Testing paste delivery…", running: true)
+                    Task {
+                        let result = await check?.run() ?? "Paste test unavailable."
+                        preferences?.showPasteTestResult(result)
+                        preferences?.openPasteSettings()
+                    }
+                }
             }
             paste.onStatusChanged = { [weak preferences] in preferences?.refreshPermissionStatus() }
             history.onToggleRecording = { [weak self] in self?.togglePause() }
@@ -105,6 +117,7 @@ import ClipboardCore
         menu.addItem(withTitle: "Open Clipboard", action: #selector(openHistory), keyEquivalent: "").target = self
         pauseItem = menu.addItem(withTitle: "Pause monitoring", action: #selector(pause), keyEquivalent: ""); pauseItem?.target = self
         menu.addItem(.separator())
+        menu.addItem(withTitle: "Permissions…", action: #selector(openPermissions), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Quit Clipboard", action: #selector(quit), keyEquivalent: "q").target = self
@@ -192,6 +205,7 @@ import ClipboardCore
         updates?.checkForUpdates(sender)
     }
     @objc private func openHistory() { history?.open() }
+    @objc private func openPermissions() { preferences?.openPasteSettings() }
     @objc private func openSettings() { preferences?.open() }
     @objc private func pause() { togglePause() }
     @objc private func quit() { history?.requestClose { [weak self] in self?.quitting = true; NSApp.terminate(nil) } }

@@ -14,5 +14,9 @@ if [[ -d "$clipboard_framework" ]]; then
     done < <(find "$clipboard_framework/Versions/B" -depth -type d \( -name '*.xpc' -o -name '*.app' \))
     codesign --force "${clipboard_options[@]}" --sign "$clipboard_identity" "$clipboard_framework"
 fi
+clipboard_helper="$clipboard_app/Contents/Helpers/ClipboardPasteCheck.app"
+if [[ -d "$clipboard_helper" ]]; then
+    codesign --force "${clipboard_options[@]}" --sign "$clipboard_identity" "$clipboard_helper"
+fi
 codesign --force "${clipboard_options[@]}" --sign "$clipboard_identity" "$clipboard_app"
 codesign --verify --deep --strict "$clipboard_app"

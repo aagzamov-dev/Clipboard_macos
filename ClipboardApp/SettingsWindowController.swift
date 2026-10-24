@@ -5,11 +5,16 @@ import UniformTypeIdentifiers
 import CoreGraphics
 
 @MainActor final class SettingsWindowController: NSWindowController, NSTextFieldDelegate, NSWindowDelegate {
-    private let permissionCheck: () -> Bool
+    private let permissionStatus: () -> PastePermissionStatus
+    private var permissionTimer: Timer?
+    private var automaticPasteButtons: [NSButton] = []
     private let pasteStatus: () -> String
     private let clipboardAccess: () -> String
     private let clipboardPermissionLabel = label("", size: 11, color: .secondaryLabelColor)
     private let pasteAttemptLabel = label("", size: 11, color: .secondaryLabelColor)
+    private let pasteTestLabel = label("No paste test run yet.", size: 11, color: .secondaryLabelColor)
+    private var pasteTestButton: ActionButton?
+    var onPasteTest: (() -> Void)?
     private var permissionLabels: [NSTextField] = []
     private let settings: SettingsStore
     private let store: HistoryStore
@@ -31,10 +36,10 @@ import CoreGraphics
     var onHistoryChanged: (() -> Void)?
     var onHistoryCleared: ((Bool) -> Void)?
     var onCaptureResume: (() -> Void)?
-    init(settings: SettingsStore, store: HistoryStore, permissionCheck: (() -> Bool)? = nil, pasteStatus: @escaping () -> String = { "No paste attempted in this session." }) {
+    init(settings: SettingsStore, store: HistoryStore, permissionCheck: (() -> Bool)? = nil, permissionStatus: (() -> PastePermissionStatus)? = nil, pasteStatus: @escaping () -> String = { "No paste attempted in this session." }) {
         self.pasteStatus = pasteStatus
         self.clipboardAccess = settings.isPersistent ? { PasteAccess.clipboardAccessDescription } : { "Fixture mode: real clipboard access is disabled." }
-        self.permissionCheck = permissionCheck ?? (settings.isPersistent ? { PasteAccess.isGranted } : { false })
+        self.permissionStatus = permissionStatus ?? permissionCheck.map { check in { let allowed = check(); return PastePermissionStatus(accessibilityTrusted: allowed, eventPostingAllowed: allowed) } } ?? (settings.isPersistent ? { PasteAccess.status } : { .init(accessibilityTrusted: false, eventPostingAllowed: false) })
         self.settings = settings; self.store = store; archives = ArchiveService(store: store)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 610), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Clipboard Settings"; window.isReleasedWhenClosed = false
@@ -56,14 +61,28 @@ import CoreGraphics
     }
     required init?(coder: NSCoder) { fatalError() }
     func open() { NSApp.activate(ignoringOtherApps: true); showWindow(nil); window?.center(); window?.makeKeyAndOrderFront(nil); rebuild() }
-    func openPasteSettings() { open(); tabs.selectTabViewItem(withIdentifier: "General"); refreshPermissionStatus() }
-    func windowDidBecomeKey(_ notification: Notification) { refreshPermissionStatus() }
+    func openPasteSettings() { open(); tabs.selectTabViewItem(withIdentifier: "Permissions"); refreshPermissionStatus() }
+    func windowDidBecomeKey(_ notification: Notification) {
+        refreshPermissionStatus()
+        permissionTimer?.invalidate()
+        let timer = Timer(timeInterval: 1, target: self, selector: #selector(refreshPermissionStatus), userInfo: nil, repeats: true)
+        timer.tolerance = 0.25; RunLoop.main.add(timer, forMode: .common); permissionTimer = timer
+    }
+    func windowDidResignKey(_ notification: Notification) { permissionTimer?.invalidate(); permissionTimer = nil }
+    func windowWillClose(_ notification: Notification) { permissionTimer?.invalidate(); permissionTimer = nil }
     @objc func refreshPermissionStatus() {
-        let granted = permissionCheck()
-        let text = !settings.value.automaticPaste ? "Automatic paste is off. Copy works without permission." : granted ? "Automatic paste is ready. Accessibility access is allowed." : "Permission required: allow Clipboard in System Settings → Privacy & Security → Accessibility."
-        for label in permissionLabels { label.stringValue = text; label.textColor = granted && settings.value.automaticPaste ? .systemGreen : .secondaryLabelColor }
+        let access = permissionStatus()
+        for label in permissionLabels {
+            label.stringValue = access.summary(enabled: settings.value.automaticPaste) + "\n\n" + access.details
+            label.textColor = access.eventPostingAllowed && access.accessibilityTrusted && settings.value.automaticPaste ? .systemGreen : .secondaryLabelColor
+        }
+        for button in automaticPasteButtons { button.state = settings.value.automaticPaste ? .on : .off }
         clipboardPermissionLabel.stringValue = clipboardAccess()
         pasteAttemptLabel.stringValue = pasteStatus()
+    }
+    func showPasteTestResult(_ text: String, running: Bool = false) {
+        pasteTestLabel.stringValue = text
+        pasteTestButton?.isEnabled = !running && settings.isPersistent
     }
     private func pasteAccessControls() -> [NSView] {
         let summary = note(""); summary.setAccessibilityLabel("Automatic paste permission status"); permissionLabels.append(summary)
@@ -73,7 +92,9 @@ import CoreGraphics
         })
         open.isEnabled = settings.isPersistent
         let recheck = ActionButton("Recheck access", action: { [weak self] in self?.refreshPermissionStatus() })
-        return [summary, row([open, recheck]), note("If access is enabled but still denied, quit and reopen Clipboard. For an older grant, remove the old Accessibility entry and add the installed copy again.")]
+        let reveal = ActionButton("Show this app in Finder", action: { NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL]) })
+        reveal.isEnabled = settings.isPersistent
+        return [summary, row([open, recheck]), reveal, note("If Accessibility already shows Clipboard but paste is blocked: remove the old entry, use + to add this exact app, enable it, then quit and reopen Clipboard. Keep one installed copy in Applications.")]
     }
     private func page(_ name: String, _ views: [NSView]) {
         let item = NSTabViewItem(identifier: name); item.label = name
@@ -106,16 +127,7 @@ import CoreGraphics
     @objc private func popupChanged(_ sender: NSPopUpButton) { perform { try changes[ObjectIdentifier(sender)]?(sender) } }
     func controlTextDidEndEditing(_ obj: Notification) { if let text = obj.object as? NSTextField { perform { try textChanges[ObjectIdentifier(text)]?(text.stringValue) } } }
     private func perform(_ action: () throws -> Void) { do { try action(); status.stringValue = "" } catch { status.stringValue = error.localizedDescription; rebuild() } }
-    private func rebuild() {
-        let selected = tabs.selectedTabViewItem?.identifier as? String
-        tabs.tabViewItems.forEach(tabs.removeTabViewItem)
-        textChanges.removeAll(); changes.removeAll(); permissionLabels.removeAll()
-        let login = ActionButton("Launch at login", action: {}); login.setButtonType(.switch); login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        login.isEnabled = settings.isPersistent
-        login.onClick = { [weak self, weak login] in guard let self, let login else { return }; self.perform { if login.state == .on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }; if SMAppService.mainApp.status == .requiresApproval { self.status.stringValue = "Approve Clipboard in System Settings → General → Login Items." } } }
-        let shortcut = ShortcutRecorder(keyCode: settings.value.shortcutKeyCode, modifiers: settings.value.shortcutModifiers)
-        shortcut.onRecord = { [weak self] code, modifiers in guard let self else { return }; self.perform { try self.onShortcut?(code, modifiers); try self.settings.update { $0.shortcutKeyCode = code; $0.shortcutModifiers = modifiers } } }
-        let theme = popup(["System", "Light", "Dark"], selection: ["System", "Light", "Dark"].firstIndex(of: settings.value.appearance) ?? 0) { [weak self] p in try self?.settings.update { $0.appearance = p.titleOfSelectedItem ?? "System" } }
+    private func automaticPasteToggle() -> NSButton {
         let autoPaste = ActionButton("Enable automatic paste", action: {}); autoPaste.setButtonType(.switch); autoPaste.state = settings.value.automaticPaste ? .on : .off
         autoPaste.isEnabled = settings.isPersistent
         autoPaste.onClick = { [weak self, weak autoPaste] in
@@ -128,8 +140,22 @@ import CoreGraphics
             }
             self.perform { try self.settings.update { $0.automaticPaste = autoPaste.state == .on } }
             self.refreshPermissionStatus()
-            if autoPaste.state == .on && !self.permissionCheck() { PasteAccess.openSettings() }
+            if autoPaste.state == .on && !self.permissionStatus().eventPostingAllowed { PasteAccess.openSettings() }
         }
+        automaticPasteButtons.append(autoPaste)
+        return autoPaste
+    }
+    private func rebuild() {
+        let selected = tabs.selectedTabViewItem?.identifier as? String
+        tabs.tabViewItems.forEach(tabs.removeTabViewItem)
+        textChanges.removeAll(); changes.removeAll(); permissionLabels.removeAll(); automaticPasteButtons.removeAll()
+        let login = ActionButton("Launch at login", action: {}); login.setButtonType(.switch); login.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        login.isEnabled = settings.isPersistent
+        login.onClick = { [weak self, weak login] in guard let self, let login else { return }; self.perform { if login.state == .on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }; if SMAppService.mainApp.status == .requiresApproval { self.status.stringValue = "Approve Clipboard in System Settings → General → Login Items." } } }
+        let shortcut = ShortcutRecorder(keyCode: settings.value.shortcutKeyCode, modifiers: settings.value.shortcutModifiers)
+        shortcut.onRecord = { [weak self] code, modifiers in guard let self else { return }; self.perform { try self.onShortcut?(code, modifiers); try self.settings.update { $0.shortcutKeyCode = code; $0.shortcutModifiers = modifiers } } }
+        let theme = popup(["System", "Light", "Dark"], selection: ["System", "Light", "Dark"].firstIndex(of: settings.value.appearance) ?? 0) { [weak self] p in try self?.settings.update { $0.appearance = p.titleOfSelectedItem ?? "System" } }
+        let autoPaste = automaticPasteToggle()
         let updateChecks = ActionButton("Automatically check for updates", action: {})
         updateChecks.setButtonType(.switch); updateChecks.state = updateChecksEnabled?() == true ? .on : .off
         updateChecks.isEnabled = onUpdateChecksChanged != nil
@@ -137,12 +163,15 @@ import CoreGraphics
         let checkUpdate = ActionButton("Check for Updates…", action: { [weak self] in self?.onCheckForUpdates?() })
         checkUpdate.isEnabled = canCheckForUpdates?() == true
         page("General", [login, row([label("Open Clipboard"), shortcut]), row([label("Appearance"), theme]), toggle("Open on active display", \.activeDisplay), autoPaste] + pasteAccessControls() + [note("No Input Monitoring, Screen Recording, or Full Disk Access is requested."), row([label("Poll interval (seconds)"), field(String(settings.value.pollingInterval)) { [weak self] value in guard let number = Double(value) else { throw CoreError.invalidData }; try self?.settings.update { $0.pollingInterval = number } }])])
-        for label in [clipboardPermissionLabel, pasteAttemptLabel] { label.maximumNumberOfLines = 0; label.lineBreakMode = .byWordWrapping }
+        let test = ActionButton("Test automatic paste…", action: { [weak self] in self?.onPasteTest?() })
+        test.isEnabled = settings.isPersistent && onPasteTest != nil
+        pasteTestButton = test
+        for label in [clipboardPermissionLabel, pasteAttemptLabel, pasteTestLabel] { label.maximumNumberOfLines = 0; label.lineBreakMode = .byWordWrapping }
         let privacySettings = ActionButton("Open Privacy & Security…", action: { guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security") else { return }; NSWorkspace.shared.open(url) })
         privacySettings.isEnabled = settings.isPersistent
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Local"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Test"
-        page("Permissions", [label("Clipboard history", size: 13), clipboardPermissionLabel, privacySettings, separator(), label("Automatic paste · Accessibility", size: 13)] + pasteAccessControls() + [separator(), label("Last paste attempt", size: 13), pasteAttemptLabel, label("Not required", size: 13), note("Input Monitoring — Not used\nScreen Recording — Not used\nFull Disk Access — Not used"), note("Copy, search, and editing work without Accessibility."), note("Running version: \(version) (\(build))\nApp: \(Bundle.main.bundleURL.path)")])
+        page("Permissions", [label("Clipboard history", size: 13), clipboardPermissionLabel, privacySettings, separator(), label("Automatic paste · Accessibility", size: 13), automaticPasteToggle()] + pasteAccessControls() + [test, pasteTestLabel, note("The test uses a separate app and a private clipboard. No text is sent to your other apps."), separator(), label("Last paste attempt", size: 13), pasteAttemptLabel, label("Not required", size: 13), note("Input Monitoring — Not used\nScreen Recording — Not used\nFull Disk Access — Not used"), note("Copy, search, and editing work without Accessibility."), note("Running version: \(version) (\(build))\nApp: \(Bundle.main.bundleURL.path)"), note(settings.isPersistent && PasteAccess.isAdHocSigned ? "Signing: ad-hoc. A new version can invalidate an old macOS permission grant. Developer ID signing is needed for a stable publisher identity across updates." : "Signing: publisher identity available.")])
         let days: [Int?] = [30, 7, 1, nil]
         let retention = popup(["30 days", "7 days", "1 day", "Forever", "Custom"], selection: days.firstIndex(where: { $0 == settings.value.retentionDays }) ?? 4) { [weak self] p in
             guard let self else { return }
