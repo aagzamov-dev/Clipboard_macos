@@ -15,6 +15,9 @@ import CoreGraphics
     private let pasteTestLabel = label("No paste test run yet.", size: 11, color: .secondaryLabelColor)
     private var pasteTestButton: ActionButton?
     var onPasteTest: (() -> Void)?
+    private var restartButtons: [NSButton] = []
+    var onRestart: (() -> Void)? { didSet { restartButtons.forEach { $0.isEnabled = onRestart != nil } } }
+    private var pasteTestRunning = false
     private var permissionLabels: [NSTextField] = []
     private let settings: SettingsStore
     private let store: HistoryStore
@@ -81,6 +84,7 @@ import CoreGraphics
         pasteAttemptLabel.stringValue = pasteStatus()
     }
     func showPasteTestResult(_ text: String, running: Bool = false) {
+        pasteTestRunning = running
         pasteTestLabel.stringValue = text
         pasteTestButton?.isEnabled = !running && settings.isPersistent
     }
@@ -94,7 +98,19 @@ import CoreGraphics
         let recheck = ActionButton("Recheck access", action: { [weak self] in self?.refreshPermissionStatus() })
         let reveal = ActionButton("Show this app in Finder", action: { NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL]) })
         reveal.isEnabled = settings.isPersistent
-        return [summary, row([open, recheck]), reveal, note("If Accessibility already shows Clipboard but paste is blocked: remove the old entry, use + to add this exact app, enable it, then quit and reopen Clipboard. Keep one installed copy in Applications.")]
+        let restart = ActionButton("Restart Clipboard", action: { [weak self] in self?.restartAfterPermissionChange() })
+        restart.isEnabled = onRestart != nil
+        restartButtons.append(restart)
+        restart.toolTip = "Reopen this app and recheck permissions. Unsaved edits are protected."
+        return [summary, row([open, recheck]), row([restart, reveal]), note("After allowing Accessibility, click Recheck access. If paste is still blocked, click Restart Clipboard. If it remains blocked after restarting, remove the old Accessibility entry and add this exact app again. Ad-hoc updates can require a new grant; restarting cannot grant access for you.")]
+    }
+    private func restartAfterPermissionChange() {
+        guard task == nil, !pasteTestRunning else {
+            status.stringValue = "Wait for the current operation to finish or cancel it before restarting."
+            return
+        }
+        window?.makeFirstResponder(nil)
+        onRestart?()
     }
     private func page(_ name: String, _ views: [NSView]) {
         let item = NSTabViewItem(identifier: name); item.label = name
@@ -148,7 +164,7 @@ import CoreGraphics
     private func rebuild() {
         let selected = tabs.selectedTabViewItem?.identifier as? String
         tabs.tabViewItems.forEach(tabs.removeTabViewItem)
-        textChanges.removeAll(); changes.removeAll(); permissionLabels.removeAll(); automaticPasteButtons.removeAll()
+        textChanges.removeAll(); changes.removeAll(); permissionLabels.removeAll(); automaticPasteButtons.removeAll(); restartButtons.removeAll()
         let login = ActionButton("Launch at login", action: {}); login.setButtonType(.switch); login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         login.isEnabled = settings.isPersistent
         login.onClick = { [weak self, weak login] in guard let self, let login else { return }; self.perform { if login.state == .on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }; if SMAppService.mainApp.status == .requiresApproval { self.status.stringValue = "Approve Clipboard in System Settings → General → Login Items." } } }

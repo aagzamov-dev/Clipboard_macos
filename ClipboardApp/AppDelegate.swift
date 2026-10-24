@@ -20,6 +20,7 @@ import ClipboardCore
     private var pauseItem: NSMenuItem?
     private var fixtureMode = false
     private var quitting = false
+    private var restarting = false
     private var updates: UpdateController?
     private var registeredShortcut: (UInt32, UInt32)?
 
@@ -66,6 +67,7 @@ import ClipboardCore
                     }
                 }
             }
+            if !fixtureMode { preferences.onRestart = { [weak self] in self?.restart() } }
             paste.onStatusChanged = { [weak preferences] in preferences?.refreshPermissionStatus() }
             history.onToggleRecording = { [weak self] in self?.togglePause() }
             history.onPasteSettings = { [weak preferences] in preferences?.openPasteSettings() }
@@ -76,7 +78,7 @@ import ClipboardCore
             preferences.onCaptureResume = { [weak self] in self?.blocked = nil; self?.manuallyPaused = false; self?.applyCaptureState() }
             preferences.onShortcut = { [weak self] key, modifiers in try self?.registerShortcut(key, modifiers) }
             settings.onChange = { [weak self] in self?.settingsChanged() }
-            let shortcut = GlobalShortcut(); self.shortcut = shortcut; shortcut.onOpen = { [weak history] in history?.toggle() }
+            let shortcut = GlobalShortcut(); self.shortcut = shortcut; shortcut.onOpen = { [weak self] in guard let self, !restarting else { return }; history.toggle() }
             if !fixtureMode {
                 do { try registerShortcut(settings.value.shortcutKeyCode, settings.value.shortcutModifiers) }
                 catch { history.showNotice(error.localizedDescription) }
@@ -91,6 +93,7 @@ import ClipboardCore
             else { manuallyPaused = false; applyCaptureState(); updates?.start() }
             if !fixtureMode { await performMaintenance() }
             startMaintenanceTimer()
+            if !fixtureMode, CommandLine.arguments.contains(AppRestart.permissionsArgument) { preferences.openPasteSettings() }
         } catch {
             let alert = NSAlert(); alert.alertStyle = .critical; alert.messageText = "Clipboard could not open history"; alert.informativeText = "Existing data has been preserved. \(error.localizedDescription)\n\nNo replacement database has been created. You can inspect or copy the existing history folder before attempting recovery."
             alert.addButton(withTitle: "Quit"); alert.runModal(); NSApp.terminate(nil)
@@ -193,6 +196,7 @@ import ClipboardCore
         } catch { blocked = .storageBlocked; applyCaptureState(); history?.showNotice(error.localizedDescription) }
     }
     @objc private func statusClicked() {
+        guard !restarting else { return }
         if NSApp.currentEvent?.type == .rightMouseDown, let item = statusItem {
             history?.dismissPopup()
             item.menu = statusMenu; item.button?.performClick(nil); item.menu = nil
@@ -204,10 +208,29 @@ import ClipboardCore
         updates?.start()
         updates?.checkForUpdates(sender)
     }
-    @objc private func openHistory() { history?.open() }
+    @objc private func openHistory() { if !restarting { history?.open() } }
     @objc private func openPermissions() { preferences?.openPasteSettings() }
     @objc private func openSettings() { preferences?.open() }
     @objc private func pause() { togglePause() }
+    private func restart() {
+        guard !fixtureMode, !restarting else { return }
+        history?.requestClose { [weak self] in
+            guard let self, !restarting else { return }
+            restarting = true
+            Task {
+                do {
+                    try await AppRestart.schedule()
+                    quitting = true
+                    NSApp.terminate(nil)
+                } catch {
+                    restarting = false
+                    let alert = NSAlert(); alert.messageText = "Clipboard could not restart"
+                    alert.informativeText = error.localizedDescription
+                    alert.runModal()
+                }
+            }
+        }
+    }
     @objc private func quit() { history?.requestClose { [weak self] in self?.quitting = true; NSApp.terminate(nil) } }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitting || history?.hasUnsavedEdits != true { return .terminateNow }
