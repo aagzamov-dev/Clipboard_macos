@@ -72,3 +72,9 @@ The bundled paste-test app provides a separate explicit live check: a named priv
 The installed v1.0.1 designated requirement is tied to code hashes and no Developer ID identity is available locally. Reauthorization after an ad-hoc update remains necessary on systems where macOS invalidates the old grant. Settings now states this limit instead of presenting an enabled Accessibility switch as proof of access.
 
 The icon is generated at native sizes and bundled as AppIcon.icns. Both the paste helper and icon are checked in the release bundle. The user requested delivery through the existing updater instead of installing a local test copy. Live v1.0.2 paste verification remains unconfirmed; the explicit Permissions test is available after updating.
+
+## v1.0.3 interaction changes
+
+The release adds one-click row paste, separate 36-point Preview/Copy buttons, first-mouse acceptance, opening-event filtering, popup-session checks for delayed focus loss, and cancellation of pending paste on dismissal/reopening. Selection/navigation alone does not paste. Refresh retains displayed rows until new results arrive, preserves scroll position, skips full ID enumeration for first-page selections, and avoids hidden detail loading.
+
+New regression tests cover independent Preview/Copy actions, duplicate-click suppression, cancellation before writing, and repeated reopening with an older focus-loss callback pending. Existing layout/image tests now explicitly invoke Preview. Core tests and build-for-testing run locally without launching the built app; native integration tests and universal packaging run in GitHub validation. No local install or app replacement is performed. Full interactive destination-app acceptance and Instruments measurements remain pending.

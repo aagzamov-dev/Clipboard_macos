@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.3] — 2026-10-24
+
+- Paste with one row click; retain modifier-click multi-selection and keyboard navigation.
+- Add always-visible 36-point Preview and Copy icon buttons on each row.
+- Ignore opening events and stale focus callbacks; cancel pending paste when dismissing or reopening.
+- Keep cached rows visible during refresh, preserve scroll position, avoid full-history ID reads for first-page selections, and load details only for visible previews.
+- Retain existing permission settings and signed GitHub updates (build 6).
+
 ## [1.0.2] — 2026-10-24
 
 - Add a minimal clipboard app icon with all macOS icon sizes.

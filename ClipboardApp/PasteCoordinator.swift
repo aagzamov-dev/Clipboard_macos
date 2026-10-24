@@ -53,6 +53,7 @@ import Security
         guard board.writeObjects(items) else { throw CoreError.invalidData }
     }
     func paste(_ snapshot: ClipboardSnapshot, enabled: Bool) async throws -> PasteOutcome {
+        try Task.checkCancellation()
         if testMode { try write(snapshot); report("Fixture copied privately; no event sent."); return .copied }
         guard enabled else { report("Stopped: automatic paste is off."); return .disabled }
         guard permissionCheck() else { report("Stopped: macOS denied event-posting access to this copy."); return .permissionRequired }

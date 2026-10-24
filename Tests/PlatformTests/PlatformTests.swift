@@ -82,7 +82,8 @@ import ClipboardCore
         XCTAssertEqual(table.selectedRow, 0)
         XCTAssertFalse(controller.hasUnsavedEdits)
         XCTAssertEqual(window.frame.width, 400, accuracy: 1)
-        table.onSelectedRowClick?()
+        let cell = try XCTUnwrap(controller.tableView(table, viewFor: nil, row: 0) as? HistoryCell)
+        cell.previewButton.performClick(nil)
         for _ in 0..<100 {
             if window.frame.width > 400 { break }
             try await Task.sleep(for: .milliseconds(10))
@@ -97,6 +98,98 @@ import ClipboardCore
         XCTAssertEqual(table.numberOfRows, 2)
         XCTAssertEqual(table.selectedRow, 1)
         controller.dismissPopup()
+    }
+
+    func testRowClickPastesOnceAndButtonsRemainIndependent() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-Actions-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try HistoryStore(rootURL: root)
+        try await store.insert(.plainText("Single click payload"))
+        let board = try XCTUnwrap(NSPasteboard.withUniqueName())
+        defer { board.releaseGlobally() }
+        let coordinator = PasteCoordinator(sessionToken: "test", testMode: true, pasteboard: board)
+        let controller = HistoryWindowController(store: store, settings: SettingsStore(persistent: false), paste: coordinator)
+        let content = try XCTUnwrap(controller.window?.contentView)
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let table = try XCTUnwrap(descendants(content).compactMap { $0 as? HistoryTable }.first)
+        controller.refresh()
+        for _ in 0..<100 {
+            if table.numberOfRows == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let cell = try XCTUnwrap(controller.tableView(table, viewFor: nil, row: 0) as? HistoryCell)
+        cell.previewButton.performClick(nil)
+        for _ in 0..<100 {
+            if controller.window?.frame.width == 720 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNil(board.string(forType: .string))
+        XCTAssertEqual(controller.window?.frame.width, 720)
+        cell.layoutSubtreeIfNeeded()
+        for button in [cell.previewButton, cell.copyButton] {
+            XCTAssertEqual(button.fittingSize.width, 36, accuracy: 1)
+            XCTAssertEqual(button.fittingSize.height, 36, accuracy: 1)
+        }
+        let generation = board.changeCount
+        table.onRowClick?(0)
+        table.onRowClick?(0)
+        for _ in 0..<100 {
+            if board.string(forType: .string) != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(board.string(forType: .string), "Single click payload")
+        let afterPaste = board.changeCount
+        XCTAssertGreaterThan(afterPaste, generation)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(board.changeCount, afterPaste)
+        board.clearContents()
+        cell.copyButton.performClick(nil)
+        for _ in 0..<100 {
+            if board.string(forType: .string) != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(board.string(forType: .string), "Single click payload")
+        controller.dismissPopup()
+    }
+
+    func testDismissCancelsPendingPasteBeforeWriting() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-Cancel-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try HistoryStore(rootURL: root)
+        try await store.insert(.plainText("Must not be copied"))
+        let board = try XCTUnwrap(NSPasteboard.withUniqueName())
+        defer { board.releaseGlobally() }
+        let controller = HistoryWindowController(store: store, settings: SettingsStore(persistent: false), paste: PasteCoordinator(sessionToken: "test", testMode: true, pasteboard: board))
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let table = try XCTUnwrap(descendants(try XCTUnwrap(controller.window?.contentView)).compactMap { $0 as? HistoryTable }.first)
+        controller.refresh()
+        for _ in 0..<100 {
+            if table.numberOfRows == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        table.onRowClick?(0)
+        controller.dismissPopup()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(board.string(forType: .string))
+    }
+
+    func testOldFocusLossDoesNotDismissReopenedPopup() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-Reopen-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controller = HistoryWindowController(store: try HistoryStore(rootURL: root), settings: SettingsStore(persistent: false), paste: PasteCoordinator(sessionToken: "test", testMode: true))
+        let window = try XCTUnwrap(controller.window)
+        for _ in 0..<5 {
+            window.orderFront(nil)
+            controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: window))
+            controller.dismissPopup()
+            controller.open()
+            try await Task.sleep(for: .milliseconds(50))
+            XCTAssertTrue(window.isVisible)
+            controller.dismissPopup()
+        }
     }
 
     func testAlreadyActiveDestinationDoesNotRequireAnotherActivationRequest() async throws {
@@ -221,6 +314,7 @@ import ClipboardCore
         XCTAssertGreaterThan(table.enclosingScrollView?.bounds.height ?? 0, 200)
         table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         controller.tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: table))
+        (controller.tableView(table, viewFor: nil, row: 0) as? HistoryCell)?.previewButton.performClick(nil)
         for _ in 0..<100 {
             if descendants(content).compactMap({ $0 as? NSTextView }).contains(where: { $0.string == "A small place for everything you copy." }) { break }
             try await Task.sleep(for: .milliseconds(10))
@@ -317,7 +411,7 @@ import ClipboardCore
                 try await Task.sleep(for: .milliseconds(10))
             }
             table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-            controller.tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: table))
+            (controller.tableView(table, viewFor: nil, row: 0) as? HistoryCell)?.previewButton.performClick(nil)
             for _ in 0..<200 {
                 if let image = imageView.image, (index == 0 ? image.height > image.width : image.width > image.height) { break }
                 try await Task.sleep(for: .milliseconds(10))

@@ -57,6 +57,9 @@ import os
     private var previewVisible = false
     private var restoringSelection = false
     private var isOpening = false
+    private var popupSession = 0
+    private var openedAt: TimeInterval = 0
+    private var pasteInProgress = false
     private var previewWidth: NSLayoutConstraint?
     var protectedDraftIDs: Set<UUID> { drafts.ids }
     var hasUnsavedEdits: Bool { !drafts.isEmpty || combinedDraft?.hasChanges == true }
@@ -80,7 +83,7 @@ import os
         buildUI()
         panel.command = { [weak self] in self?.handle($0) ?? false }
         table.command = { [weak self] in self?.handle($0) ?? false }
-        table.onSelectedRowClick = { [weak self] in self?.updateSelection() }
+        table.onRowClick = { [weak self] row in self?.pasteRow(row) }
         NotificationCenter.default.addObserver(self, selector: #selector(applicationBecameActive), name: NSApplication.didBecomeActiveNotification, object: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -123,7 +126,7 @@ import os
         root.insertArrangedSubview(separator(), at: 3)
         table.headerView = nil; table.rowHeight = 52; table.intercellSpacing = .zero; table.allowsMultipleSelection = true
         table.style = .fullWidth; table.selectionHighlightStyle = .regular
-        table.dataSource = self; table.delegate = self; table.target = self; table.doubleAction = #selector(pasteSelected)
+        table.dataSource = self; table.delegate = self; table.target = self; table.doubleAction = nil
         let column = NSTableColumn(identifier: .init("entry")); column.resizingMask = .autoresizingMask; table.addTableColumn(column)
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.setAccessibilityLabel("Clipboard history")
@@ -184,6 +187,9 @@ import os
         }
     }
     func open() {
+        popupSession += 1
+        openedAt = ProcessInfo.processInfo.systemUptime
+        actionTask?.cancel(); pasteInProgress = false
         openingInterval = signposter.beginInterval("Open history")
         paste.rememberTarget()
         if let window {
@@ -198,7 +204,14 @@ import os
         if NSApp.isActive { finishOpening() } else { NSApp.activate() }
         refresh()
     }
-    @objc private func applicationBecameActive() { if isOpening { finishOpening() } }
+    @objc private func applicationBecameActive() {
+        let session = popupSession
+        Task { [weak self] in
+            await Task.yield()
+            guard let self, session == popupSession, isOpening, NSApp.isActive else { return }
+            finishOpening()
+        }
+    }
     private func finishOpening() {
         guard window?.isVisible == true else { isOpening = false; return }
         window?.makeKeyAndOrderFront(nil)
@@ -221,12 +234,16 @@ import os
     }
     private func installDismissalMonitors() {
         removeDismissalMonitors()
-        outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
-            MainActor.assumeIsolated { self?.dismissPopup() }
+        let session = popupSession
+        outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, session == self.popupSession, event.timestamp > self.openedAt, !self.isOpening, let window = self.window, !window.frame.contains(NSEvent.mouseLocation) else { return }
+                self.dismissPopup()
+            }
         }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             MainActor.assumeIsolated {
-                if let self, let eventWindow = event.window, eventWindow !== self.window, eventWindow.level != .statusBar, eventWindow.level.rawValue < NSWindow.Level.popUpMenu.rawValue { self.dismissPopup() }
+                if let self, session == self.popupSession, event.timestamp > self.openedAt, !self.isOpening, let eventWindow = event.window, eventWindow !== self.window, eventWindow.level != .statusBar, eventWindow.level.rawValue < NSWindow.Level.popUpMenu.rawValue { self.dismissPopup() }
             }
             return event
         }
@@ -235,8 +252,10 @@ import os
         if let outsideMonitor { NSEvent.removeMonitor(outsideMonitor); self.outsideMonitor = nil }
         if let localMonitor { NSEvent.removeMonitor(localMonitor); self.localMonitor = nil }
     }
-    func dismissPopup() {
+    func dismissPopup(cancelAction: Bool = true) {
         guard NSApp.modalWindow == nil, window?.attachedSheet == nil else { return }
+        popupSession += 1
+        if cancelAction { actionTask?.cancel(); pasteInProgress = false }
         isOpening = false
         removeDismissalMonitors()
         searchTask?.cancel(); previewTask?.cancel(); imageTask?.cancel(); revision += 1
@@ -246,9 +265,10 @@ import os
     }
     func windowDidResignKey(_ notification: Notification) {
         guard !isOpening else { return }
+        let session = popupSession
         Task { [weak self] in
             await Task.yield()
-            guard let self, !isOpening, window?.isKeyWindow != true else { return }
+            guard let self, session == popupSession, !isOpening, window?.isVisible == true, window?.isKeyWindow != true else { return }
             dismissPopup()
         }
     }
@@ -284,22 +304,28 @@ import os
     func refresh() {
         revision += 1; let version = revision
         query = .init(search: search.stringValue, dateFilter: DateFilter.allCases[dates.indexOfSelectedItem], kind: typeFilter.indexOfSelectedItem == 0 ? nil : ClipboardKind.allCases[typeFilter.indexOfSelectedItem - 1], pinnedFirst: settings.value.pinnedFirst)
-        pages.removeAll(); pageOrder.removeAll(); loading.removeAll()
         searchTask?.cancel()
-        let requested = query, retained = selectedIDs
+        let requested = query
         searchTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let page = try await store.page(requested)
                 guard !Task.isCancelled, revision == version else { return }
-                let ids = retained.isEmpty ? [] : try await store.orderedIDs(requested)
+                let retained = selectedIDs
+                let firstPageIDs = page.entries.map(\.id)
+                let ids = retained.isEmpty || retained.isSubset(of: Set(firstPageIDs)) ? firstPageIDs : try await store.orderedIDs(requested)
                 guard !Task.isCancelled, revision == version else { return }
+                let scrollOrigin = table.enclosingScrollView?.contentView.bounds.origin ?? .zero
+                pages.removeAll(); pageOrder.removeAll(); loading.removeAll()
                 totalCount = page.totalCount; cache(page)
                 restoringSelection = true
                 table.reloadData()
                 let indexes = IndexSet(ids.enumerated().filter { retained.contains($0.element) }.map(\.offset))
                 table.selectRowIndexes(indexes.isEmpty && totalCount > 0 ? IndexSet(integer: 0) : indexes, byExtendingSelection: false)
                 restoringSelection = false
+                if let scroll = table.enclosingScrollView {
+                    scroll.contentView.scroll(to: scrollOrigin); scroll.reflectScrolledClipView(scroll.contentView)
+                }
                 itemCount.stringValue = "\(totalCount) items"
                 if let interval = openingInterval { signposter.endInterval("Open history", interval); openingInterval = nil }
                 updateSelection(openPreview: false)
@@ -330,7 +356,7 @@ import os
         let identifier = NSUserInterfaceItemIdentifier("HistoryCell")
         let cell = table.makeView(withIdentifier: identifier, owner: self) as? HistoryCell ?? HistoryCell(frame: .zero)
         cell.identifier = identifier
-        guard let summary = summary(at: row) else { cell.titleLabel.stringValue = "Loading…"; cell.metadataLabel.stringValue = ""; cell.icon.image = nil; cell.copyButton.isEnabled = false; loadPage(containing: row); return cell }
+        guard let summary = summary(at: row) else { cell.titleLabel.stringValue = "Loading…"; cell.metadataLabel.stringValue = ""; cell.icon.image = nil; cell.copyButton.isEnabled = false; cell.previewButton.isEnabled = false; loadPage(containing: row); return cell }
         cell.titleLabel.stringValue = summary.preview.isEmpty ? "Empty text" : summary.preview
         let relative = abs(summary.createdAt.timeIntervalSinceNow) < 60 ? "Just now" : relativeFormatter.localizedString(for: summary.createdAt, relativeTo: Date())
         var metadata = [summary.kind.label, relative]
@@ -338,11 +364,25 @@ import os
         if let source = summary.sourceBundleID, !source.isEmpty { metadata.append(source) }
         cell.metadataLabel.stringValue = metadata.joined(separator: " · ")
         cell.icon.image = NSImage(systemSymbolName: summary.kind.symbol, accessibilityDescription: summary.kind.label)
+        cell.previewButton.isEnabled = true
+        cell.previewButton.onClick = { [weak self] in self?.previewEntry(summary.id) }
         cell.copyButton.isEnabled = true; cell.copyButton.onClick = { [weak self] in self?.copy(ids: [summary.id]) }
         cell.setAccessibilityLabel("\(summary.preview), \(metadata.joined(separator: ", "))")
         return cell
     }
-    func tableViewSelectionDidChange(_ notification: Notification) { if !restoringSelection { updateSelection() } }
+    func tableViewSelectionDidChange(_ notification: Notification) { if !restoringSelection { updateSelection(openPreview: previewVisible || table.selectedRowIndexes.count > 1) } }
+    private func pasteRow(_ row: Int) {
+        guard let id = summary(at: row)?.id, !pasteInProgress else { return }
+        selectedIDs = [id]
+        pasteSelection()
+    }
+    private func previewEntry(_ id: UUID) {
+        guard let row = pages.compactMap({ page, entries in entries.firstIndex(where: { $0.id == id }).map { page * 100 + $0 } }).first else { return }
+        restoringSelection = true
+        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        restoringSelection = false
+        setPreview(true); updateSelection()
+    }
     private func updateSelection(openPreview: Bool = true) {
         previewTask?.cancel()
         let indexes = table.selectedRowIndexes, requested = query, version = revision
@@ -389,7 +429,7 @@ import os
                         }
                     }
                     renderBulk(count: ordered.count, text: compatible ? combinedDraft?.text : nil)
-                } else if let detail = try await store.detail(ordered[0]) {
+                } else if previewVisible, let detail = try await store.detail(ordered[0]) {
                     guard !Task.isCancelled else { return }
                     selectedDetail = detail; if previewVisible { render(detail) }
                 }
@@ -494,6 +534,7 @@ import os
     func copySelection() { copy(ids: selectedIDs) }
     private func copy(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
+        pasteInProgress = false
         let combinedText = combinedDraft.flatMap { Set($0.ids) == ids && ids.count > 1 ? $0.text : nil }
         actionTask?.cancel()
         actionTask = Task { [weak self] in
@@ -516,22 +557,31 @@ import os
         }
         return .plainText(merged)
     }
-    @objc private func pasteSelected() { pasteSelection() }
     func pasteSelection() {
         guard selectedIDs.count == 1 else { showNotice("Select one item to paste. Use Copy selected to combine compatible text."); return }
+        guard !pasteInProgress else { return }
         actionTask?.cancel(); let ids = selectedIDs
+        pasteInProgress = true
+        let session = popupSession
         actionTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let payload = try await preparedPayload(ids: ids)
-                if settings.value.automaticPaste { dismissPopup() }
+                try Task.checkCancellation()
+                guard session == popupSession else { return }
+                if settings.value.automaticPaste { dismissPopup(cancelAction: false) }
                 let result = try await paste.paste(payload, enabled: settings.value.automaticPaste)
+                try Task.checkCancellation()
+                pasteInProgress = false
                 switch result {
-                case .pasteEventSent: dismissPopup()
+                case .pasteEventSent: dismissPopup(cancelAction: false)
                 case .copied: showNotice("Copied.")
                 default:
-                    NSApp.activate()
-                    window?.makeKeyAndOrderFront(nil); installDismissalMonitors(); refresh()
+                    popupSession += 1; openedAt = ProcessInfo.processInfo.systemUptime
+                    isOpening = true
+                    window?.orderFront(nil); installDismissalMonitors()
+                    if NSApp.isActive { finishOpening() } else { NSApp.activate() }
+                    refresh()
                     let failure = PasteFailurePresentation(outcome: result, deniedDescription: result == .permissionRequired ? PasteAccess.deniedDescription : "")
                     let alert = NSAlert(); alert.messageText = failure.title; alert.informativeText = failure.message
                     alert.addButton(withTitle: "Copy instead"); if failure.offersSettings { alert.addButton(withTitle: "Open Paste Settings…") }; alert.addButton(withTitle: "Cancel")
@@ -539,7 +589,7 @@ import os
                     if response == .alertFirstButtonReturn { try paste.write(payload); showNotice("Copied. Switch to your application and press ⌘V.") }
                     else if failure.offersSettings && response == .alertSecondButtonReturn { onPasteSettings?() }
                 }
-            } catch is CancellationError {} catch { showNotice(error.localizedDescription) }
+            } catch is CancellationError {} catch { pasteInProgress = false; showNotice(error.localizedDescription) }
         }
     }
     private func saveDraft() {
@@ -647,7 +697,7 @@ import os
     }
     private func showShortcuts() {
         let alert = NSAlert(); alert.messageText = "Keyboard shortcuts"
-        alert.informativeText = "List: ↑↓ Navigate · ⇧↑↓ Extend selection\n⌘click Toggle · ⇧click Range · ⌘A Select all\n⌘C Copy · Delete / ⌘⌫ Delete entries\nEnter Paste · ⌘P Pin · Space Toggle preview\n\nEditor: ⌘S Save · ⌘Enter Paste draft\n⌘⇧C Copy item · ⌘F Search\n\nCopy and Delete retain normal text-editing behavior inside text fields.\nEscape closes the preview before dismissing history."
+        alert.informativeText = "Click row to paste · Right-side eye to preview · Copy icon to copy\nList: ↑↓ Navigate · ⇧↑↓ Extend selection\n⌘click Toggle · ⇧click Range · ⌘A Select all\n⌘C Copy · Delete / ⌘⌫ Delete entries\nEnter Paste · ⌘P Pin · Space Toggle preview\n\nEditor: ⌘S Save · ⌘Enter Paste draft\n⌘⇧C Copy item · ⌘F Search\n\nCopy and Delete retain normal text-editing behavior inside text fields.\nEscape closes the preview before dismissing history."
         alert.runModal()
     }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { !selectedIDs.isEmpty }

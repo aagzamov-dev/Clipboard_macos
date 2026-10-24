@@ -4,7 +4,7 @@ A small, native clipboard manager for macOS. Find what you copied, edit it, and 
 
 **macOS 14+ · Apple Silicon & Intel · Swift + AppKit · MIT**
 
-[Download v1.0.2](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.2) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
+[Download v1.0.3](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.3) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
 
 ![Clipboard with an editable combined preview](docs/screenshots/text-preview.png)
 
@@ -14,7 +14,8 @@ Native app screenshots with example clipboard content.
 
 - **A compact popup.** Open with **⌥⌘V** or the menu-bar icon. Click outside to dismiss.
 - **Useful previews.** A 40% list and 60% preview in a 720 × 440-point window. Images fit without stretching the window.
-- **Edit immediately.** Select text and start typing. Copy uses your draft; **⌘S** saves it to history.
+- **Paste in one click.** Click a row to paste; use the larger right-side Preview and Copy icons for those actions. Automatic paste must be enabled in Permissions.
+- **Edit immediately.** Click Preview and start typing. Copy uses your draft; **⌘S** saves it to history.
 - **Copy several entries.** Command-click or Shift-click, edit the combined text, then Copy. Original entries stay unchanged.
 - **Find and keep.** Search, filter by date/type, and pin favorites. Unpinned history expires after 30 days by default.
 - **Your Mac, your history.** No accounts, analytics, or cloud sync. Clipboard contents stay on your Mac. Optional password-encrypted backups.
@@ -30,7 +31,7 @@ Built with AppKit and system SQLite. [Sparkle](https://sparkle-project.org) hand
 
 ## Install
 
-1. Download **Clipboard-v1.0.2-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.2).
+1. Download **Clipboard-v1.0.3-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.3).
 2. Open it and drag **Clipboard.app** into **Applications**. A ZIP is also available.
 3. Launch Clipboard and choose **Start local history**. Recording starts automatically on future launches.
 

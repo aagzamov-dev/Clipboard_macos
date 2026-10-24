@@ -12,6 +12,7 @@ import AppKit
         if title.isEmpty { toolTip = accessibilityTitle }
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     @objc private func clicked() { onClick?() }
 }
 @MainActor func label(_ text: String, size: CGFloat = 12, color: NSColor = .labelColor) -> NSTextField {
@@ -32,15 +33,17 @@ import AppKit
 @MainActor func separator() -> NSBox { let box = NSBox(); box.boxType = .separator; return box }
 @MainActor final class HistoryTable: NSTableView {
     var command: ((NSEvent) -> Bool)?
-    var onSelectedRowClick: (() -> Void)?
+    var onRowClick: ((Int) -> Void)?
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
         let clickedRow = row(at: convert(event.locationInWindow, from: nil))
-        let previous = selectedRowIndexes
         super.mouseDown(with: event)
-        if clickedRow >= 0, selectedRowIndexes == previous, previous.contains(clickedRow), event.clickCount == 1 {
-            onSelectedRowClick?()
+        if clickedRow >= 0, event.clickCount == 1,
+           event.modifierFlags.intersection([.command, .shift, .control, .option]).isEmpty {
+            onRowClick?(clickedRow)
         }
     }
+
     override func keyDown(with event: NSEvent) { if command?(event) != true { super.keyDown(with: event) } }
     override func performKeyEquivalent(with event: NSEvent) -> Bool { if command?(event) == true { return true }; return super.performKeyEquivalent(with: event) }
 }
@@ -54,14 +57,23 @@ import AppKit
     let icon = NSImageView()
     let titleLabel = label("", size: 13)
     let metadataLabel = label("", size: 11, color: .secondaryLabelColor)
-    let copyButton = ActionButton("Copy", action: {})
+    let copyButton = ActionButton("", symbol: "doc.on.doc", action: {})
+    let previewButton = ActionButton("", symbol: "eye", action: {})
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         icon.imageScaling = .scaleProportionallyDown
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([icon.widthAnchor.constraint(equalToConstant: 22), icon.heightAnchor.constraint(equalToConstant: 22)])
         let text = NSStackView(views: [titleLabel, metadataLabel]); text.orientation = .vertical; text.alignment = .leading; text.spacing = 4
-        let content = row([icon, text, copyButton], spacing: 10)
+        for (button, name) in [(previewButton, "Preview"), (copyButton, "Copy")] {
+            button.setAccessibilityLabel(name); button.toolTip = name
+            button.controlSize = .regular
+            button.image = button.image?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular))
+            button.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([button.widthAnchor.constraint(equalToConstant: 36), button.heightAnchor.constraint(equalToConstant: 36)])
+        }
+        let actions = row([previewButton, copyButton], spacing: 4)
+        let content = row([icon, text, actions], spacing: 8)
         content.distribution = .fill
         copyButton.setContentHuggingPriority(.required, for: .horizontal)
         copyButton.setContentCompressionResistancePriority(.required, for: .horizontal)
