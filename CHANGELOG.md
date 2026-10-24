@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.4] — 2026-10-24
+
+- Add Restart Clipboard to permission controls, protect unsaved edits, and reopen the same app directly to Permissions after the old process exits.
+- Block restart during backup/import or a paste test; explain that restarting refreshes permission recognition but does not grant access or replace Developer ID signing.
+
 ## [1.0.3] — 2026-10-24
 
 - Paste with one row click; retain modifier-click multi-selection and keyboard navigation.

@@ -109,7 +109,7 @@ import Security
             _ = AXIsProcessTrustedWithOptions(options)
         } else if !isGranted { _ = CGRequestPostEventAccess() }
     }
-    static let deniedDescription = "Command-V event access is blocked for this running copy. In System Settings → Privacy & Security → Accessibility, remove the old Clipboard entry, add the exact app shown in Clipboard Settings → Permissions, and enable it. Then quit and reopen Clipboard. Updates to ad-hoc signed builds can invalidate an older grant."
+    static let deniedDescription = "Command-V event access is blocked for this running copy. In System Settings → Privacy & Security → Accessibility, remove the old Clipboard entry, add the exact app shown in Clipboard Settings → Permissions, and enable it. Then use Restart Clipboard in Clipboard Settings → Permissions. Updates to ad-hoc signed builds can invalidate an older grant."
     static func openSettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
         if !NSWorkspace.shared.open(url), let fallback = URL(string: "x-apple.systempreferences:com.apple.preference.security") { NSWorkspace.shared.open(fallback) }

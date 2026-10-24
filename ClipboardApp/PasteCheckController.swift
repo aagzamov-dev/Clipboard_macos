@@ -7,7 +7,7 @@ import ClipboardCore
     init(sessionToken: String) { self.sessionToken = sessionToken }
     func run() async -> String {
         guard !running else { return "A paste test is already running." }
-        guard PasteAccess.isGranted else { return "Test blocked: macOS has not allowed Command-V for this copy. Renew its Accessibility entry, then quit and reopen Clipboard." }
+        guard PasteAccess.isGranted else { return "Test blocked: macOS has not allowed Command-V for this copy. Renew its Accessibility entry, then choose Restart Clipboard in Permissions." }
         running = true
         defer { running = false }
         let board = NSPasteboard.withUniqueName()
@@ -39,7 +39,7 @@ import ClipboardCore
                 if app.isTerminated { return "Test cancelled: the test window closed before receiving paste." }
                 try await Task.sleep(for: .milliseconds(50))
             } while ContinuousClock.now < deadline
-            return "Test failed: macOS reported access, but the test app received no paste. Renew Clipboard’s Accessibility entry, then quit and reopen it."
+            return "Test failed: macOS reported access, but the test app received no paste. Renew Clipboard’s Accessibility entry, then choose Restart Clipboard in Permissions."
         } catch { return "Paste test could not finish. \(error.localizedDescription)" }
     }
 }
