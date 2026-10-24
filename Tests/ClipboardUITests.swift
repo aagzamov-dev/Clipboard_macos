@@ -8,7 +8,7 @@ import XCTest
         let table = app.tables["Clipboard history"]
         XCTAssertTrue(table.waitForExistence(timeout: 10))
         XCTAssertTrue(table.cells.firstMatch.waitForExistence(timeout: 5))
-        table.cells.firstMatch.click()
+        app.buttons["Preview"].firstMatch.click()
         let editor = app.textViews["Editable clipboard text"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Copy"].firstMatch.exists)
@@ -36,7 +36,7 @@ import XCTest
         app.launch()
         let table = app.tables["Clipboard history"]
         XCTAssertTrue(table.waitForExistence(timeout: 10))
-        table.cells.firstMatch.click()
+        table.click()
         table.typeKey("a", modifierFlags: .command)
         XCTAssertTrue(app.buttons["Copy selected"].waitForExistence(timeout: 5))
         let editor = app.textViews["Combined clipboard text"]
