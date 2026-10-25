@@ -104,3 +104,7 @@ Validation: 30 core and 36 platform tests pass, including stable paging during n
 The popup defaults to Today on initialization and each reopening. Previous/next-day controls navigate Yesterday and any earlier calendar day; forward navigation stops at Today. The existing dropdown retains All history and other ranges. Explicit-day queries use inclusive start/exclusive next-midnight bounds against the existing date index, shared by paging and ordered selection. Calendar arithmetic handles local day lengths. This filters display only and does not delete older entries.
 
 Validation: 31 core and 37 platform tests pass, including exact midnight bounds, existing daylight-saving coverage, Today → Yesterday → earlier day → Today navigation, All history access, and resetting to Today on reopening. Native popup renders include the new day controls. No additional performance improvement is claimed without measurement.
+
+## v1.0.7 row spacing
+
+The thumbnail/icon and action stacks now use required horizontal stack hugging, leaving flexible width to the text region. The regression reproduced excessive gaps before the fix and passes afterward across three cell widths, short/long labels, and thumbnail/icon visibility changes. All 31 core and 37 platform tests and the local Release build pass. Native image fixture output was visually inspected.
