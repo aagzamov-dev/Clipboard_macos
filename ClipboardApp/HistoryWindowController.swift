@@ -11,7 +11,18 @@ import os
     private let table = HistoryTable()
     private let search = NSSearchField()
     private let typeFilter = NSPopUpButton()
+    private let pinnedFilter = NSButton(checkboxWithTitle: "Pinned", target: nil, action: nil)
+    private let newItemsButton = ActionButton("", action: {})
+    private var pendingCaptures = 0
+    private var appNames: [String: String] = [:]
+    private var savedFrames: [String: NSRect] = [:]
+    private var frameKey: String?
+    var onOpen: (() -> Void)?
+    private let textTools = NSPopUpButton()
     private let dates = NSPopUpButton()
+    private let previousDay = ActionButton("", symbol: "chevron.left", action: {})
+    private let nextDay = ActionButton("", symbol: "chevron.right", action: {})
+    private var selectedDay: Date?
     private let body = NSStackView()
     private let preview = PreviewStack()
     private let previewTitle = label("Text", size: 13)
@@ -46,6 +57,7 @@ import os
     private var previewTask: Task<Void, Never>?
     private var imageTask: Task<Void, Never>?
     private let imageLoader = ImagePreviewLoader()
+    private let thumbnails = NSCache<NSUUID, NSImage>()
     private var actionTask: Task<Void, Never>?
     private var cleanupTask: Task<Void, Never>?
     private var selectedIDs = Set<UUID>()
@@ -71,15 +83,20 @@ import os
 
     init(store: HistoryStore, settings: SettingsStore, paste: PasteCoordinator) {
         self.store = store; self.settings = settings; self.paste = paste
-        let panel = HistoryPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: 440), styleMask: [.borderless, .resizable], backing: .buffered, defer: false)
+        let panel = HistoryPanel(contentRect: NSRect(x: 0, y: 0, width: 540, height: 594), styleMask: [.borderless, .resizable], backing: .buffered, defer: false)
         panel.title = "Clipboard"; panel.level = .floating; panel.isFloatingPanel = true; panel.hidesOnDeactivate = false
         panel.isOpaque = false; panel.backgroundColor = .clear
         panel.becomesKeyOnlyIfNeeded = false; panel.hasShadow = true; panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.animationBehavior = .utilityWindow
-        panel.minSize = NSSize(width: 400, height: 360); panel.maxSize = NSSize(width: 500, height: 560); panel.isReleasedWhenClosed = false
+        panel.minSize = NSSize(width: 540, height: 486); panel.maxSize = NSSize(width: 675, height: 756); panel.isReleasedWhenClosed = false
         super.init(window: panel)
+        if settings.isPersistent, let frames = UserDefaults.standard.dictionary(forKey: "historyWindowFrames") as? [String: String] {
+            savedFrames = frames.mapValues(NSRectFromString)
+        }
         panel.delegate = self
+        thumbnails.countLimit = 128
+        thumbnails.totalCostLimit = 8 * 1024 * 1024
         buildUI()
         panel.command = { [weak self] in self?.handle($0) ?? false }
         table.command = { [weak self] in self?.handle($0) ?? false }
@@ -100,24 +117,33 @@ import os
         search.setAccessibilityLabel("Search clipboard history")
         let settingsButton = ActionButton("", symbol: "gearshape", action: { [weak self] in self?.onSettings?() }); settingsButton.setAccessibilityLabel("Settings"); settingsButton.toolTip = "Settings  ⌘,"
         recordingToggle.onClick = { [weak self] in self?.onToggleRecording?() }
-        let header = padded(row([recordingStatus, recordingToggle, NSView(), settingsButton]), vertical: 6)
+        let header = padded(row([recordingStatus, NSView(), recordingToggle, settingsButton]), vertical: 6)
         header.heightAnchor.constraint(equalToConstant: 32).isActive = true
         root.addArrangedSubview(header)
         let searchRow = padded(search, vertical: 6)
         searchRow.heightAnchor.constraint(equalToConstant: 34).isActive = true
         root.addArrangedSubview(searchRow)
-        dates.addItems(withTitles: DateFilter.allCases.map(\.rawValue)); dates.controlSize = .small; dates.target = self; dates.action = #selector(filtersChanged)
+        pinnedFilter.target = self; pinnedFilter.action = #selector(filtersChanged); pinnedFilter.controlSize = .small
+        newItemsButton.isHidden = true
+        newItemsButton.onClick = { [weak self] in self?.selectedIDs = []; self?.refresh() }
+        dates.addItems(withTitles: DateFilter.allCases.map(\.rawValue)); dates.controlSize = .small; dates.target = self; dates.action = #selector(dateFilterChanged)
+        dates.selectItem(withTitle: DateFilter.today.rawValue)
         dates.setAccessibilityLabel("Date filter")
+        previousDay.setAccessibilityLabel("Previous day"); previousDay.toolTip = "Previous day"
+        nextDay.setAccessibilityLabel("Next day"); nextDay.toolTip = "Next day"
+        previousDay.onClick = { [weak self] in self?.moveDay(-1) }
+        nextDay.onClick = { [weak self] in self?.moveDay(1) }
+        nextDay.isEnabled = false
         typeFilter.addItems(withTitles: ["All types"] + ClipboardKind.allCases.map(\.label))
         typeFilter.controlSize = .small; typeFilter.target = self; typeFilter.action = #selector(filtersChanged); typeFilter.setAccessibilityLabel("Content type")
-        noticeContainer = padded(row([notice, undoButton]), vertical: 7); noticeContainer.isHidden = true; noticeContainer.heightAnchor.constraint(equalToConstant: 32).isActive = true; root.addArrangedSubview(noticeContainer)
+        noticeContainer = padded(row([notice, NSView(), undoButton]), vertical: 7); noticeContainer.isHidden = true; noticeContainer.heightAnchor.constraint(equalToConstant: 32).isActive = true; root.addArrangedSubview(noticeContainer)
         bulkCopy.setAccessibilityLabel("Copy selected"); bulkCopy.toolTip = "Copy selected  ⌘⇧C"
         bulkCopy.onClick = { [weak self] in self?.copySelection() }
-        bulkBar.setViews([bulkCount, bulkCopy, ActionButton("Delete", action: { [weak self] in self?.deleteSelection() }), ActionButton("", symbol: "xmark", action: { [weak self] in self?.clearBulkSelection() })], in: .leading)
+        bulkBar.setViews([bulkCopy, ActionButton("Delete", action: { [weak self] in self?.deleteSelection() }), ActionButton("", symbol: "xmark", action: { [weak self] in self?.clearBulkSelection() })], in: .leading)
         (bulkBar.arrangedSubviews.last as? NSButton)?.setAccessibilityLabel("Clear selection")
         bulkBar.orientation = .horizontal; bulkBar.spacing = 6; bulkBar.alignment = .centerY
-        bulkBar.isHidden = true
-        let toolbar = row([bulkBar, NSView(), typeFilter, dates], spacing: 6)
+        bulkBar.isHidden = true; bulkCount.isHidden = true
+        let toolbar = row([bulkCount, NSView(), bulkBar, pinnedFilter, typeFilter, previousDay, dates, nextDay], spacing: 6)
         toolbar.distribution = .fill
         dates.setContentCompressionResistancePriority(.required, for: .horizontal)
         typeFilter.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -125,7 +151,7 @@ import os
         toolbarContainer.heightAnchor.constraint(equalToConstant: 30).isActive = true
         root.insertArrangedSubview(toolbarContainer, at: 2)
         root.insertArrangedSubview(separator(), at: 3)
-        table.headerView = nil; table.rowHeight = 52; table.intercellSpacing = .zero; table.allowsMultipleSelection = true
+        table.headerView = nil; table.rowHeight = 64; table.intercellSpacing = .zero; table.allowsMultipleSelection = true
         table.style = .fullWidth; table.selectionHighlightStyle = .regular
         table.dataSource = self; table.delegate = self; table.target = self; table.doubleAction = nil
         let column = NSTableColumn(identifier: .init("entry")); column.resizingMask = .autoresizingMask; table.addTableColumn(column)
@@ -135,7 +161,8 @@ import os
         body.orientation = .horizontal; body.alignment = .top; body.spacing = 0; body.distribution = .fill
         body.addArrangedSubview(listScroll)
         preview.orientation = .vertical; preview.alignment = .leading; preview.spacing = 8; preview.distribution = .fill; preview.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
-        preview.translatesAutoresizingMaskIntoConstraints = false; previewWidth = preview.widthAnchor.constraint(equalTo: body.widthAnchor, multiplier: 0.6)
+        let previewListFraction = (540.0 * 0.8) / 972.0
+        preview.translatesAutoresizingMaskIntoConstraints = false; previewWidth = preview.widthAnchor.constraint(equalTo: body.widthAnchor, multiplier: 1 - previewListFraction)
         preview.addArrangedSubview(row([previewTitle, editStatus, NSView(), ActionButton("", symbol: "xmark", action: { [weak self] in self?.setPreview(false) })]))
         preview.addArrangedSubview(sourceLabel)
         if #available(macOS 15.0, *) { editor.writingToolsBehavior = .none }
@@ -154,19 +181,24 @@ import os
         preview.addArrangedSubview(image)
         fileLabel.maximumNumberOfLines = 0; fileLabel.lineBreakMode = .byWordWrapping; fileLabel.isSelectable = true; preview.addArrangedSubview(fileLabel)
         preview.addArrangedSubview(characterCount)
+        textTools.addItems(withTitles: ["Text actions…", "Paste as plain text", "Trim whitespace", "Remove blank lines", "UPPERCASE", "lowercase"])
+        textTools.target = self; textTools.action = #selector(applyTextTool); textTools.controlSize = .small
+        preview.addArrangedSubview(textTools)
         draftActions.orientation = .horizontal; draftActions.spacing = 6
-        draftActions.addArrangedSubview(ActionButton("Revert", action: { [weak self] in self?.revertDraft() }))
-        draftActions.addArrangedSubview(ActionButton("Save  ⌘S", action: { [weak self] in self?.saveDraft() }))
+        draftActions.setViews([ActionButton("Revert", action: { [weak self] in self?.revertDraft() }), ActionButton("Save  ⌘S", action: { [weak self] in self?.saveDraft() })], in: .trailing)
         preview.addArrangedSubview(draftActions)
         previewActions.orientation = .horizontal; previewActions.spacing = 5
-        previewActions.addArrangedSubview(ActionButton("Copy", action: { [weak self] in self?.copySelection() }))
-        previewActions.addArrangedSubview(ActionButton("Paste", action: { [weak self] in self?.pasteSelection() }))
-        previewActions.addArrangedSubview(ActionButton("Pin", action: { [weak self] in self?.togglePin() }))
         let delete = ActionButton("", symbol: "trash", action: { [weak self] in self?.deleteSelection() }); delete.setAccessibilityLabel("Delete entry")
-        previewActions.addArrangedSubview(delete); preview.addArrangedSubview(previewActions)
+        previewActions.setViews([
+            ActionButton("Copy", action: { [weak self] in self?.copySelection() }),
+            ActionButton("Paste", action: { [weak self] in self?.pasteSelection() }),
+            ActionButton("Pin", action: { [weak self] in self?.togglePin() }),
+            delete
+        ], in: .trailing)
+        preview.addArrangedSubview(previewActions)
         body.addArrangedSubview(preview); preview.isHidden = true
         root.addArrangedSubview(body); root.addArrangedSubview(separator())
-        let hints = row([label("↑↓ Navigate · ⌘C Copy · ⌘⌫ Delete", size: 10, color: .secondaryLabelColor), NSView(), itemCount, ActionButton("", symbol: "keyboard", action: { [weak self] in self?.showShortcuts() })], spacing: 6)
+        let hints = row([label("↑↓ Navigate · ⌘C Copy · ⌘⌫ Delete", size: 10, color: .secondaryLabelColor), NSView(), newItemsButton, itemCount, ActionButton("", symbol: "keyboard", action: { [weak self] in self?.showShortcuts() })], spacing: 6)
         hints.distribution = .fill
         let footer = padded(hints, vertical: 3)
         footer.heightAnchor.constraint(equalToConstant: 28).isActive = true
@@ -193,11 +225,12 @@ import os
         actionTask?.cancel(); pasteInProgress = false
         openingInterval = signposter.beginInterval("Open history")
         paste.rememberTarget()
-        if let window {
-            var frame = window.frame
-            frame.size = NSSize(width: previewVisible ? 720 : 400, height: 440)
-            window.setFrame(frame, display: false)
+        if selectedDay != nil || dates.titleOfSelectedItem != DateFilter.today.rawValue {
+            selectedDay = nil; dates.selectItem(withTitle: DateFilter.today.rawValue)
+            selectedIDs = []; pages.removeAll(); pageOrder.removeAll(); totalCount = 0
+            table.reloadData()
         }
+        onOpen?()
         positionWindow()
         isOpening = true
         window?.orderFront(nil)
@@ -260,7 +293,8 @@ import os
         isOpening = false
         removeDismissalMonitors()
         searchTask?.cancel(); previewTask?.cancel(); imageTask?.cancel(); revision += 1
-        pages.removeAll(); pageOrder.removeAll(); loading.removeAll()
+        loading.removeAll()
+        saveWindowFrame()
         window?.orderOut(nil); image.image = nil
         editor.string = ""; editor.undoManager?.removeAllActions(); selectedDetail = nil; lastRenderedID = nil
     }
@@ -272,6 +306,11 @@ import os
             guard let self, session == popupSession, !isOpening, window?.isVisible == true, window?.isKeyWindow != true else { return }
             dismissPopup()
         }
+    }
+    private func saveWindowFrame() {
+        guard let frameKey, let window else { return }
+        savedFrames[frameKey] = window.frame
+        if settings.isPersistent { UserDefaults.standard.set(savedFrames.mapValues(NSStringFromRect), forKey: "historyWindowFrames") }
     }
     private func positionWindow() {
         guard let window else { return }
@@ -286,6 +325,12 @@ import os
         }
         guard let screen else { return }
         let available = screen.visibleFrame.insetBy(dx: 12, dy: 12)
+        let key = "\(screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] ?? "display")-\(previewVisible)"
+        if frameKey != key {
+            if let frameKey { savedFrames[frameKey] = window.frame }
+            frameKey = key
+            if let saved = savedFrames[key] { window.setFrame(saved, display: false) }
+        }
         var frame = window.frame; frame.size.width = min(frame.width, available.width); frame.size.height = min(frame.height, available.height)
         frame.origin.x = min(max(frame.minX, available.minX), available.maxX - frame.width)
         frame.origin.y = min(max(frame.minY, available.minY), available.maxY - frame.height)
@@ -293,6 +338,7 @@ import os
         window.setFrame(frame, display: false)
     }
     func historyWasCleared(includePinned: Bool) {
+        thumbnails.removeAllObjects()
         undoToken = nil; undoButton.isHidden = true
         Task {
             if includePinned { drafts.removeAll() }
@@ -302,9 +348,23 @@ import os
             refresh()
         }
     }
-    func refresh() {
+    func historyCaptured() {
+        guard window?.isVisible == true else { return }
+        let origin = table.enclosingScrollView?.contentView.bounds.origin.y ?? 0
+        if origin > 1 || previewVisible || selectedIDs.count > 1 || table.selectedRow > 0 || window?.firstResponder is NSTextView {
+            pendingCaptures += 1
+            newItemsButton.title = "\(pendingCaptures) new · Refresh"
+            newItemsButton.isHidden = false
+        } else { refresh(incremental: true) }
+    }
+    func refresh(incremental: Bool = false) {
         revision += 1; let version = revision
-        query = .init(search: search.stringValue, dateFilter: DateFilter.allCases[dates.indexOfSelectedItem], kind: typeFilter.indexOfSelectedItem == 0 ? nil : ClipboardKind.allCases[typeFilter.indexOfSelectedItem - 1], pinnedFirst: settings.value.pinnedFirst)
+        query = .init(search: search.stringValue, dateFilter: DateFilter(rawValue: dates.titleOfSelectedItem ?? "") ?? .today, kind: typeFilter.indexOfSelectedItem == 0 ? nil : ClipboardKind.allCases[typeFilter.indexOfSelectedItem - 1], pinnedFirst: settings.value.pinnedFirst)
+        query.day = selectedDay
+        nextDay.isEnabled = displayedDay < Calendar.current.startOfDay(for: Date())
+        query.pinnedOnly = pinnedFilter.state == .on
+        query.capturedBefore = Date()
+        pendingCaptures = 0; newItemsButton.isHidden = true
         searchTask?.cancel()
         let requested = query
         searchTask = Task { [weak self] in
@@ -317,10 +377,18 @@ import os
                 let ids = retained.isEmpty || retained.isSubset(of: Set(firstPageIDs)) ? firstPageIDs : try await store.orderedIDs(requested)
                 guard !Task.isCancelled, revision == version else { return }
                 let scrollOrigin = table.enclosingScrollView?.contentView.bounds.origin ?? .zero
+                let oldEntries = pages[0] ?? []
+                let oldCount = totalCount
+                let added = page.totalCount - oldCount
+                let canInsert = incremental && added > 0 && added < 100 && !oldEntries.isEmpty &&
+                    Array(page.entries.dropFirst(added)) == Array(oldEntries.prefix(page.entries.count - added))
                 pages.removeAll(); pageOrder.removeAll(); loading.removeAll()
                 totalCount = page.totalCount; cache(page)
                 restoringSelection = true
-                table.reloadData()
+                if canInsert {
+                    table.insertRows(at: IndexSet(integersIn: 0..<added), withAnimation: [])
+                    table.reloadData(forRowIndexes: IndexSet(integersIn: 0..<min(100, totalCount)), columnIndexes: IndexSet(integer: 0))
+                } else { table.reloadData() }
                 let indexes = IndexSet(ids.enumerated().filter { retained.contains($0.element) }.map(\.offset))
                 table.selectRowIndexes(indexes.isEmpty && totalCount > 0 ? IndexSet(integer: 0) : indexes, byExtendingSelection: false)
                 restoringSelection = false
@@ -342,7 +410,7 @@ import os
     }
     private func loadPage(containing row: Int) {
         let index = row / 100, version = revision, requested = query
-        guard !loading.contains(index) else { return }; loading.insert(index)
+        guard pages[index] == nil, !loading.contains(index) else { return }; loading.insert(index)
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -357,12 +425,19 @@ import os
         let identifier = NSUserInterfaceItemIdentifier("HistoryCell")
         let cell = table.makeView(withIdentifier: identifier, owner: self) as? HistoryCell ?? HistoryCell(frame: .zero)
         cell.identifier = identifier
+        cell.thumbnailTask?.cancel(); cell.thumbnailTask = nil
+        cell.representedID = nil; cell.thumbnail.image = nil
+        cell.thumbnail.isHidden = true; cell.icon.isHidden = false
         guard let summary = summary(at: row) else { cell.titleLabel.stringValue = "Loading…"; cell.metadataLabel.stringValue = ""; cell.icon.image = nil; cell.copyButton.isEnabled = false; cell.previewButton.isEnabled = false; loadPage(containing: row); return cell }
+        if row % 100 >= 75, (row / 100 + 1) * 100 < totalCount { loadPage(containing: (row / 100 + 1) * 100) }
+        cell.representedID = summary.id
+        if summary.kind == .image { loadThumbnail(for: summary.id, into: cell) }
         cell.titleLabel.stringValue = summary.preview.isEmpty ? "Empty text" : summary.preview
         let relative = abs(summary.createdAt.timeIntervalSinceNow) < 60 ? "Just now" : relativeFormatter.localizedString(for: summary.createdAt, relativeTo: Date())
         var metadata = [summary.kind.label, relative]
         if summary.isPinned { metadata.append("Pinned") }; if drafts.text(for: summary.id) != nil { metadata.append("Edited") }
-        if let source = summary.sourceBundleID, !source.isEmpty { metadata.append(source) }
+        if let source = summary.sourceBundleID, !source.isEmpty { metadata.append(appName(source)) }
+        if row < 9 { metadata.append("⌘\(row + 1)") }
         cell.metadataLabel.stringValue = metadata.joined(separator: " · ")
         cell.icon.image = NSImage(systemSymbolName: summary.kind.symbol, accessibilityDescription: summary.kind.label)
         cell.previewButton.isEnabled = true
@@ -370,6 +445,31 @@ import os
         cell.copyButton.isEnabled = true; cell.copyButton.onClick = { [weak self] in self?.copy(ids: [summary.id]) }
         cell.setAccessibilityLabel("\(summary.preview), \(metadata.joined(separator: ", "))")
         return cell
+    }
+    private func loadThumbnail(for id: UUID, into cell: HistoryCell) {
+        cell.thumbnail.isHidden = false; cell.icon.isHidden = true
+        if let cached = thumbnails.object(forKey: id as NSUUID) {
+            cell.thumbnail.image = cached
+            return
+        }
+        let store = store, loader = imageLoader
+        cell.thumbnailTask = Task { [weak self, weak cell] in
+            do {
+                guard let detail = try await store.detail(id),
+                      let name = detail.representations.first?.attachmentName, PrivateFiles.isManagedName(name) else { throw CoreError.inaccessibleAttachment }
+                try Task.checkCancellation()
+                let result = try await loader.thumbnail(url: store.attachmentsURL.appendingPathComponent(name), maxPixelSize: 128)
+                guard !Task.isCancelled, let cell, cell.representedID == id else { return }
+                let representation = NSBitmapImageRep(cgImage: result.image)
+                let thumbnail = NSImage(size: representation.size)
+                thumbnail.addRepresentation(representation)
+                self?.thumbnails.setObject(thumbnail, forKey: id as NSUUID, cost: result.image.bytesPerRow * result.image.height)
+                cell.thumbnail.image = thumbnail
+            } catch {
+                guard !Task.isCancelled, let cell, cell.representedID == id else { return }
+                cell.thumbnail.isHidden = true; cell.icon.isHidden = false
+            }
+        }
     }
     func tableViewSelectionDidChange(_ notification: Notification) { if !restoringSelection { updateSelection(openPreview: previewVisible || table.selectedRowIndexes.count > 1) } }
     private func pasteEntry(_ id: UUID) {
@@ -390,7 +490,7 @@ import os
         let cachedSelection = indexes.compactMap { summary(at: $0)?.id }
         selectedIDs = cachedSelection.count == indexes.count ? Set(cachedSelection) : []
         selectedDetail = nil; editor.isEditable = false
-        bulkBar.isHidden = indexes.count < 2; bulkCount.stringValue = "\(indexes.count)"; bulkCount.setAccessibilityLabel("\(indexes.count) selected")
+        bulkBar.isHidden = indexes.count < 2; bulkCount.isHidden = bulkBar.isHidden; bulkCount.stringValue = "\(indexes.count)"; bulkCount.setAccessibilityLabel("\(indexes.count) selected")
         guard !indexes.isEmpty else { selectedIDs = []; selectedDetail = nil; renderEmptyPreview(); return }
         previewTask = Task { [weak self] in
             guard let self else { return }
@@ -437,8 +537,10 @@ import os
             } catch is CancellationError {} catch { showNotice(error.localizedDescription) }
         }
     }
-    private func renderEmptyPreview() { imageTask?.cancel(); editor.string = ""; image.image = nil; sourceLabel.stringValue = ""; previewTitle.stringValue = "Select an item"; editorScroll.isHidden = true; image.isHidden = true; fileLabel.isHidden = true; previewActions.isHidden = true; draftActions.isHidden = true; characterCount.stringValue = ""; editStatus.stringValue = "" }
+    private func renderEmptyPreview() {
+        textTools.isHidden = true; imageTask?.cancel(); editor.string = ""; image.image = nil; sourceLabel.stringValue = ""; previewTitle.stringValue = "Select an item"; editorScroll.isHidden = true; image.isHidden = true; fileLabel.isHidden = true; previewActions.isHidden = true; draftActions.isHidden = true; characterCount.stringValue = ""; editStatus.stringValue = "" }
     private func renderBulk(count: Int, text: String?) {
+        textTools.isHidden = text == nil
         imageTask?.cancel()
         image.image = nil; image.isHidden = true; fileLabel.isHidden = text != nil
         fileLabel.stringValue = "Select compatible text, code, and links to copy together. Copy images and files individually. Large selections may exceed the 2 MiB copy limit."
@@ -458,8 +560,9 @@ import os
         image.image = nil; image.isHidden = entry.kind != .image; editorScroll.isHidden = !entry.kind.isText; fileLabel.isHidden = entry.kind != .files
         previewActions.isHidden = false; bulkCopy.isEnabled = true
         previewTitle.stringValue = entry.kind.label
-        sourceLabel.stringValue = [entry.sourceBundleID, entry.createdAt.formatted(date: .abbreviated, time: .shortened)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        sourceLabel.stringValue = [entry.sourceBundleID.map(appName), entry.createdAt.formatted(date: .abbreviated, time: .shortened)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         editor.setAccessibilityLabel("Editable clipboard text")
+        textTools.isHidden = !entry.kind.isText
         editor.isEditable = entry.kind.isText
         editor.font = entry.kind == .code ? .monospacedSystemFont(ofSize: 12, weight: .regular) : .systemFont(ofSize: 13)
         let text = drafts.text(for: entry.id) ?? detail.text ?? ""
@@ -488,14 +591,15 @@ import os
     }
     private func setPreview(_ visible: Bool) {
         guard previewVisible != visible else { return }
+        saveWindowFrame(); frameKey = nil
         previewVisible = visible; previewWidth?.isActive = visible; preview.isHidden = !visible
         if !visible { imageTask?.cancel(); image.image = nil; editor.string = ""; selectedDetail = nil }
         guard let window else { return }
-        window.minSize = NSSize(width: visible ? 660 : 400, height: 360)
-        window.maxSize = NSSize(width: visible ? 900 : 500, height: 560)
+        window.minSize = NSSize(width: visible ? 891 : 540, height: 486)
+        window.maxSize = NSSize(width: visible ? 1215 : 675, height: 756)
         var frame = window.frame
         let top = frame.maxY
-        frame.size = NSSize(width: visible ? 720 : 400, height: min(480, max(360, frame.height)))
+        frame.size = NSSize(width: visible ? 972 : 540, height: min(648, max(486, frame.height)))
         frame.origin.y = top - frame.height
         window.setFrame(frame, display: true); positionWindow()
     }
@@ -530,7 +634,34 @@ import os
         searchTask?.cancel()
         searchTask = Task { [weak self] in do { try await Task.sleep(for: .milliseconds(75)) } catch { return }; guard !Task.isCancelled else { return }; self?.refresh() }
     }
-    @objc private func filtersChanged() { selectedIDs = []; refresh() }
+    private var displayedDay: Date {
+        selectedDay ?? (DateFilter(rawValue: dates.titleOfSelectedItem ?? "") ?? .today).range(now: Date())?.lowerBound ?? Calendar.current.startOfDay(for: Date())
+    }
+    private func moveDay(_ offset: Int) {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        guard let day = calendar.date(byAdding: .day, value: offset, to: displayedDay), day <= today else { return }
+        if dates.numberOfItems > DateFilter.allCases.count { dates.removeItem(at: DateFilter.allCases.count) }
+        if calendar.isDateInToday(day) {
+            selectedDay = nil; dates.selectItem(withTitle: DateFilter.today.rawValue)
+        } else if calendar.isDateInYesterday(day) {
+            selectedDay = nil; dates.selectItem(withTitle: DateFilter.yesterday.rawValue)
+        } else {
+            selectedDay = day
+            dates.addItem(withTitle: day.formatted(.dateTime.month(.abbreviated).day().year()))
+            dates.selectItem(at: DateFilter.allCases.count)
+        }
+        filtersChanged()
+    }
+    @objc private func dateFilterChanged() {
+        if dates.indexOfSelectedItem < DateFilter.allCases.count { selectedDay = nil }
+        filtersChanged()
+    }
+    @objc private func filtersChanged() {
+        selectedIDs = []
+        table.enclosingScrollView?.contentView.scroll(to: .zero)
+        refresh()
+    }
     func showNotice(_ message: String) { notice.stringValue = message; noticeContainer.isHidden = message.isEmpty && undoToken == nil }
     func copySelection() { copy(ids: selectedIDs) }
     private func copy(ids: Set<UUID>) {
@@ -558,7 +689,7 @@ import os
         }
         return .plainText(merged)
     }
-    func pasteSelection() {
+    func pasteSelection(plainText: Bool = false) {
         guard selectedIDs.count == 1 else { showNotice("Select one item to paste. Use Copy selected to combine compatible text."); return }
         guard !pasteInProgress else { return }
         actionTask?.cancel(); let ids = selectedIDs
@@ -567,7 +698,11 @@ import os
         actionTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let payload = try await preparedPayload(ids: ids)
+                var payload = try await preparedPayload(ids: ids)
+                if plainText {
+                    guard let text = payload.text else { pasteInProgress = false; showNotice("Select a text entry for plain-text paste."); return }
+                    payload = .plainText(text)
+                }
                 try Task.checkCancellation()
                 guard session == popupSession else { return }
                 dismissPopup(cancelAction: false)
@@ -592,6 +727,32 @@ import os
                 }
             } catch is CancellationError {} catch { pasteInProgress = false; showNotice(error.localizedDescription) }
         }
+    }
+    private func appName(_ bundleID: String) -> String {
+        if let name = appNames[bundleID] { return name }
+        let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID).map {
+            FileManager.default.displayName(atPath: $0.path).replacingOccurrences(of: ".app", with: "")
+        } ?? bundleID
+        appNames[bundleID] = name
+        return name
+    }
+    @objc private func applyTextTool() {
+        let action = textTools.indexOfSelectedItem
+        textTools.selectItem(at: 0)
+        if action == 1 { pasteSelection(plainText: true); return }
+        guard editor.isEditable, !editorScroll.isHidden else { return }
+        let text: String
+        switch action {
+        case 2: text = editor.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        case 3: text = editor.string.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.joined(separator: "\n")
+        case 4: text = editor.string.uppercased()
+        case 5: text = editor.string.lowercased()
+        default: return
+        }
+        let range = NSRange(location: 0, length: (editor.string as NSString).length)
+        guard editor.shouldChangeText(in: range, replacementString: text) else { return }
+        editor.textStorage?.replaceCharacters(in: range, with: text)
+        editor.didChangeText()
     }
     private func saveDraft() {
         guard let id = selectedDetail?.summary.id, let text = drafts.text(for: id) else { return }
@@ -663,7 +824,7 @@ import os
         }
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool { requestClose(); return false }
-    private func releasePreview() { removeDismissalMonitors(); previewTask?.cancel(); combinedDraft = nil; imageTask?.cancel(); image.image = nil; editor.string = ""; selectedDetail = nil; pages.removeAll(); pageOrder.removeAll() }
+    private func releasePreview() { saveWindowFrame(); removeDismissalMonitors(); previewTask?.cancel(); combinedDraft = nil; imageTask?.cancel(); image.image = nil; editor.string = ""; selectedDetail = nil; pages.removeAll(); pageOrder.removeAll() }
     func suspendWindow() { dismissPopup(); pages.removeAll(); pageOrder.removeAll() }
     private func handle(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask), command = flags.contains(.command), shift = flags.contains(.shift)
@@ -673,14 +834,21 @@ import os
         if command && key == "," { onSettings?(); return true }
         if command && key == "s" { saveDraft(); return true }
         if command && key == "c" && shift { copySelection(); return true }
-        if command && event.keyCode == 36 { pasteSelection(); return true }
+        if command && event.keyCode == 36 { pasteSelection(plainText: shift); return true }
         if event.keyCode == 53 { escape(); return true }
         guard !textEditing else { return false }
+        if command, !flags.contains(.option), let number = Int(key), (1...9).contains(number), let entry = summary(at: number - 1) { pasteEntry(entry.id); return true }
         if command && key == "c" { copySelection(); return true }
         if command && key == "p" { togglePin(); return true }
         if event.keyCode == 51 || event.keyCode == 117 { deleteSelection(); return true }
-        if event.keyCode == 36 { pasteSelection(); return true }
+        if event.keyCode == 36 { pasteSelection(plainText: shift); return true }
         if event.keyCode == 49 { if previewVisible { setPreview(false) } else { setPreview(true); updateSelection() }; return true }
+        if !command, !flags.contains(.control), !flags.contains(.option), let text = event.characters,
+           !text.isEmpty, text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) && $0.value < 0xF700 }) {
+            window?.makeFirstResponder(search)
+            search.currentEditor()?.insertText(text)
+            return true
+        }
         return false
     }
     private func escape() {
@@ -694,11 +862,13 @@ import os
     }
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if commandSelector == #selector(NSResponder.cancelOperation(_:)) { escape(); return true }
+        if control === search, commandSelector == #selector(NSResponder.moveDown(_:)) { window?.makeFirstResponder(table); return true }
+        if control === search, commandSelector == #selector(NSResponder.insertNewline(_:)) { pasteSelection(); return true }
         return false
     }
     private func showShortcuts() {
         let alert = NSAlert(); alert.messageText = "Keyboard shortcuts"
-        alert.informativeText = "Click row to paste · Right-side eye to preview · Copy icon to copy\nList: ↑↓ Navigate · ⇧↑↓ Extend selection\n⌘click Toggle · ⇧click Range · ⌘A Select all\n⌘C Copy · Delete / ⌘⌫ Delete entries\nEnter Paste · ⌘P Pin · Space Toggle preview\n\nEditor: ⌘S Save · ⌘Enter Paste draft\n⌘⇧C Copy item · ⌘F Search\n\nCopy and Delete retain normal text-editing behavior inside text fields.\nEscape closes the preview before dismissing history."
+        alert.informativeText = "Click row to paste · Right-side eye to preview · Copy icon to copy\nList: ↑↓ Navigate · ⇧↑↓ Extend selection\n⌘click Toggle · ⇧click Range · ⌘A Select all\n⌘C Copy · Delete / ⌘⌫ Delete entries\nEnter Paste · ⇧Enter Plain text · ⌘1–9 Quick paste · Type to search · ⌘P Pin · Space Toggle preview\n\nEditor: ⌘S Save · ⌘Enter Paste draft\n⌘⇧C Copy item · ⌘F Search\n\nCopy and Delete retain normal text-editing behavior inside text fields.\nEscape closes the preview before dismissing history."
         alert.runModal()
     }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { !selectedIDs.isEmpty }
@@ -708,11 +878,11 @@ private extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
 private extension Array { subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil } }
 
 private actor ImagePreviewLoader {
-    func thumbnail(url: URL) throws -> PreviewImage {
+    func thumbnail(url: URL, maxPixelSize: Int = 1024) throws -> PreviewImage {
         try Task.checkCancellation()
         try PrivateFiles.rejectLink(url)
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 1024, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else { throw CoreError.inaccessibleAttachment }
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: maxPixelSize, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else { throw CoreError.inaccessibleAttachment }
         try Task.checkCancellation()
         return PreviewImage(image: image)
     }

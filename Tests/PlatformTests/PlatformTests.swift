@@ -4,6 +4,179 @@ import ClipboardCore
 @testable import ClipboardPlatform
 
 @MainActor final class PlatformTests: XCTestCase {
+    func testPlainTextShortcutDoesNotAlterRichHistory() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-Plain-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try HistoryStore(rootURL: root)
+        let snapshot = ClipboardSnapshot(kind: .text, text: "Rich text", representations: [.init(type: PayloadRules.textType, data: Data("Rich text".utf8)), .init(type: "public.rtf", data: Data("{\\rtf1 Rich text}".utf8))])
+        let id = try await store.insert(snapshot)
+        let board = try XCTUnwrap(NSPasteboard.withUniqueName())
+        defer { board.releaseGlobally() }
+        let controller = HistoryWindowController(store: store, settings: SettingsStore(persistent: false), paste: PasteCoordinator(sessionToken: "test", testMode: true, pasteboard: board))
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let table = try XCTUnwrap(descendants(try XCTUnwrap(controller.window?.contentView)).compactMap { $0 as? HistoryTable }.first)
+        controller.refresh()
+        for _ in 0..<100 { if table.selectedRow == 0 { break }; try await Task.sleep(for: .milliseconds(10)) }
+        controller.pasteSelection(plainText: true)
+        for _ in 0..<100 { if board.string(forType: .string) == "Rich text" { break }; try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(board.string(forType: .string), "Rich text")
+        XCTAssertNil(board.data(forType: .rtf))
+        let stored = try await store.materialize(id)
+        XCTAssertEqual(stored.representations.count, 2)
+    }
+    func testIncrementalCaptureAndWarmCacheKeepSelection() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-Incremental-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try HistoryStore(rootURL: root)
+        let id = try await store.insert(.plainText("Original"))
+        let controller = HistoryWindowController(store: store, settings: SettingsStore(persistent: false), paste: PasteCoordinator(sessionToken: "test", testMode: true))
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let table = try XCTUnwrap(descendants(try XCTUnwrap(controller.window?.contentView)).compactMap { $0 as? HistoryTable }.first)
+        controller.refresh()
+        for _ in 0..<100 { if table.selectedRow == 0 { break }; try await Task.sleep(for: .milliseconds(10)) }
+        try await store.insert(.plainText("New"))
+        controller.refresh(incremental: true)
+        for _ in 0..<100 { if table.numberOfRows == 2 { break }; try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(table.selectedRow, 1)
+        XCTAssertEqual(table.entryID?(1), id)
+        controller.dismissPopup()
+        XCTAssertEqual(table.entryID?(1), id)
+    }
+
+    func testCaptureDefersRefreshWhileEditingAndTextCleanupPreservesHistory() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-Deferred-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try HistoryStore(rootURL: root)
+        let id = try await store.insert(.plainText("  Original  "))
+        let controller = HistoryWindowController(store: store, settings: SettingsStore(persistent: false), paste: PasteCoordinator(sessionToken: "test", testMode: true))
+        let window = try XCTUnwrap(controller.window)
+        defer { controller.dismissPopup() }
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let views = descendants(try XCTUnwrap(window.contentView))
+        let table = try XCTUnwrap(views.compactMap { $0 as? HistoryTable }.first)
+        let editor = try XCTUnwrap(views.compactMap { $0 as? NSTextView }.first)
+        controller.refresh()
+        for _ in 0..<100 { if table.selectedRow == 0 { break }; try await Task.sleep(for: .milliseconds(10)) }
+        (controller.tableView(table, viewFor: nil, row: 0) as? HistoryCell)?.previewButton.performClick(nil)
+        for _ in 0..<100 { if editor.string == "  Original  " { break }; try await Task.sleep(for: .milliseconds(10)) }
+        let actions = try XCTUnwrap(views.compactMap { $0 as? NSPopUpButton }.first { $0.itemTitles.contains("Trim whitespace") })
+        actions.selectItem(withTitle: "Trim whitespace")
+        _ = actions.sendAction(try XCTUnwrap(actions.action), to: actions.target)
+        XCTAssertEqual(editor.string, "Original")
+        XCTAssertTrue(controller.hasUnsavedEdits)
+        window.orderFront(nil)
+        try await store.insert(.plainText("New capture"))
+        controller.historyCaptured()
+        XCTAssertEqual(table.numberOfRows, 1)
+        XCTAssertEqual(editor.string, "Original")
+        XCTAssertTrue(views.compactMap { $0 as? NSButton }.contains { $0.title == "1 new · Refresh" && !$0.isHidden })
+        let original = try await store.detail(id)
+        XCTAssertEqual(original?.text, "  Original  ")
+    }
+
+    func testDailyDefaultAndPreviousNextNavigation() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-Day-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try HistoryStore(rootURL: root)
+        let today = Calendar.current.startOfDay(for: Date())
+        var ids: [UUID] = []
+        for offset in 0...2 {
+            let day = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -offset, to: today))
+            ids.append(try await store.insert(.plainText("Day \(offset)", date: day)))
+        }
+        let controller = HistoryWindowController(store: store, settings: SettingsStore(persistent: false), paste: PasteCoordinator(sessionToken: "test", testMode: true))
+        defer { controller.dismissPopup() }
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let views = descendants(try XCTUnwrap(controller.window?.contentView))
+        let table = try XCTUnwrap(views.compactMap { $0 as? HistoryTable }.first)
+        let dates = try XCTUnwrap(views.compactMap { $0 as? NSPopUpButton }.first { $0.accessibilityLabel() == "Date filter" })
+        let previous = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.accessibilityLabel() == "Previous day" })
+        let next = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.accessibilityLabel() == "Next day" })
+        func expectDay(_ index: Int) async throws {
+            for _ in 0..<100 { if table.entryID?(0) == ids[index] { break }; try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(table.numberOfRows, 1)
+            XCTAssertEqual(table.entryID?(0), ids[index])
+        }
+        controller.refresh()
+        try await expectDay(0)
+        XCTAssertEqual(dates.titleOfSelectedItem, "Today")
+        XCTAssertFalse(next.isEnabled)
+        previous.performClick(nil); try await expectDay(1)
+        XCTAssertEqual(dates.titleOfSelectedItem, "Yesterday")
+        previous.performClick(nil); try await expectDay(2)
+        XCTAssertTrue(next.isEnabled)
+        next.performClick(nil); try await expectDay(1)
+        next.performClick(nil); try await expectDay(0)
+        XCTAssertFalse(next.isEnabled)
+        dates.selectItem(withTitle: "All history")
+        _ = dates.sendAction(try XCTUnwrap(dates.action), to: dates.target)
+        for _ in 0..<100 { if table.numberOfRows == 3 { break }; try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(table.numberOfRows, 3)
+        controller.open(); try await expectDay(0)
+        XCTAssertEqual(dates.titleOfSelectedItem, "Today")
+    }
+
+    func testHistoryCellActionsStayAtTrailingEdge() throws {
+        _ = NSApplication.shared
+        let cell = HistoryCell(frame: NSRect(x: 0, y: 0, width: 540, height: 64))
+        for width: CGFloat in [356, 540, 675] {
+            cell.setFrameSize(NSSize(width: width, height: 64))
+            for text in ["Image", String(repeating: "Long clipboard text ", count: 20)] {
+                cell.titleLabel.stringValue = text
+                cell.metadataLabel.stringValue = "Text · Just now"
+                for showsThumbnail in [false, true] {
+                    cell.thumbnail.isHidden = !showsThumbnail
+                    cell.icon.isHidden = showsThumbnail
+                    cell.layoutSubtreeIfNeeded()
+                    let copy = cell.copyButton.convert(cell.copyButton.bounds, to: cell)
+                    let preview = cell.previewButton.convert(cell.previewButton.bounds, to: cell)
+                    let title = cell.titleLabel.convert(cell.titleLabel.bounds, to: cell)
+                    XCTAssertEqual(copy.maxX, width - 10, accuracy: 1)
+                    XCTAssertLessThanOrEqual(preview.maxX, copy.minX)
+                    XCTAssertLessThanOrEqual(title.maxX, preview.minX)
+                }
+            }
+        }
+    }
+
+    func testHistoryListLoadsImageThumbnailWithoutOpeningPopup() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Clipboard-Thumbnail-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try HistoryStore(rootURL: root)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 320, pixelsHigh: 160, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        try await store.insert(ClipboardSnapshot(kind: .image, representations: [.init(type: "public.png", data: data)]))
+        let controller = HistoryWindowController(store: store, settings: SettingsStore(persistent: false), paste: PasteCoordinator(sessionToken: "test", testMode: true))
+        let window = try XCTUnwrap(controller.window)
+        XCTAssertFalse(window.isVisible)
+        XCTAssertEqual(window.frame.size, NSSize(width: 540, height: 594))
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let table = try XCTUnwrap(descendants(try XCTUnwrap(window.contentView)).compactMap { $0 as? HistoryTable }.first)
+        controller.refresh()
+        for _ in 0..<100 {
+            if table.numberOfRows == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let cell = try XCTUnwrap(controller.tableView(table, viewFor: nil, row: 0) as? HistoryCell)
+        for _ in 0..<100 {
+            if cell.thumbnail.image != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let thumbnail = try XCTUnwrap(cell.thumbnail.image)
+        let representation = try XCTUnwrap(thumbnail.representations.first)
+        XCTAssertLessThanOrEqual(representation.pixelsWide, 128)
+        XCTAssertEqual(representation.pixelsWide, representation.pixelsHigh * 2)
+        XCTAssertFalse(cell.thumbnail.isHidden)
+        XCTAssertTrue(cell.icon.isHidden)
+        XCTAssertFalse(window.isVisible)
+        controller.dismissPopup()
+    }
+
     func testPermissionMismatchDoesNotClaimReady() {
         let inconsistent = PastePermissionStatus(accessibilityTrusted: false, eventPostingAllowed: true)
         XCTAssertTrue(inconsistent.summary.contains("disagree"))
@@ -80,14 +253,17 @@ import ClipboardCore
         }
         XCTAssertEqual(table.selectedRow, 0)
         XCTAssertFalse(controller.hasUnsavedEdits)
-        XCTAssertEqual(window.frame.width, 400, accuracy: 1)
+        XCTAssertEqual(window.frame.width, 540, accuracy: 1)
         let cell = try XCTUnwrap(controller.tableView(table, viewFor: nil, row: 0) as? HistoryCell)
         cell.previewButton.performClick(nil)
         for _ in 0..<100 {
-            if window.frame.width > 400 { break }
+            if window.frame.width > 540 { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        XCTAssertEqual(window.frame.width, 720, accuracy: 1)
+        XCTAssertEqual(window.frame.width, 972, accuracy: 1)
+        window.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertEqual(table.enclosingScrollView?.bounds.width ?? 0, 540 * 0.8, accuracy: 1)
+        XCTAssertFalse(window.isVisible)
         try await store.insert(.plainText("A newer entry"))
         controller.refresh()
         for _ in 0..<100 {
@@ -96,6 +272,12 @@ import ClipboardCore
         }
         XCTAssertEqual(table.numberOfRows, 2)
         XCTAssertEqual(table.selectedRow, 1)
+        let close = try XCTUnwrap(descendants(try XCTUnwrap(window.contentView)).compactMap { $0 as? NSButton }.first { $0.accessibilityLabel() == "Close preview" })
+        close.performClick(nil)
+        window.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertEqual(window.frame.width, 540, accuracy: 1)
+        XCTAssertEqual(table.enclosingScrollView?.bounds.width ?? 0, 540, accuracy: 1)
+        XCTAssertFalse(window.isVisible)
         controller.dismissPopup()
     }
 
@@ -120,11 +302,11 @@ import ClipboardCore
         let cell = try XCTUnwrap(controller.tableView(table, viewFor: nil, row: 0) as? HistoryCell)
         cell.previewButton.performClick(nil)
         for _ in 0..<100 {
-            if controller.window?.frame.width == 720 { break }
+            if controller.window?.frame.width == 972 { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertNil(board.string(forType: .string))
-        XCTAssertEqual(controller.window?.frame.width, 720)
+        XCTAssertEqual(controller.window?.frame.width, 972)
         cell.layoutSubtreeIfNeeded()
         for button in [cell.previewButton, cell.copyButton] {
             XCTAssertEqual(button.fittingSize.width, 36, accuracy: 1)
@@ -309,7 +491,7 @@ import ClipboardCore
         }
         content.layoutSubtreeIfNeeded()
         XCTAssertGreaterThan(search.bounds.width, 250)
-        XCTAssertEqual(table.enclosingScrollView?.bounds.width ?? 0, content.bounds.width * 0.4, accuracy: 1)
+        XCTAssertEqual(table.enclosingScrollView?.bounds.width ?? 0, content.bounds.width * (432.0 / 972.0), accuracy: 1)
         XCTAssertGreaterThan(table.enclosingScrollView?.bounds.height ?? 0, 200)
         let searchFrame = search.convert(search.bounds, to: content)
         let listScroll = try XCTUnwrap(table.enclosingScrollView)
@@ -361,12 +543,12 @@ import ClipboardCore
         }
         XCTAssertTrue(editor.isEditable)
         XCTAssertTrue(editor.string.contains("Ship something simple."))
-        for size in [NSSize(width: 660, height: 360), NSSize(width: 900, height: 560), NSSize(width: 720, height: 440)] {
+        for size in [NSSize(width: 891, height: 486), NSSize(width: 1215, height: 756), NSSize(width: 972, height: 594)] {
             window.setContentSize(size)
             content.layoutSubtreeIfNeeded()
             XCTAssertTrue(content.bounds.contains(search.convert(search.bounds, to: content)))
             XCTAssertTrue(content.bounds.contains(listScroll.convert(listScroll.bounds, to: content)))
-            XCTAssertEqual(listScroll.bounds.width, content.bounds.width * 0.4, accuracy: 1)
+            XCTAssertEqual(listScroll.bounds.width, content.bounds.width * (432.0 / 972.0), accuracy: 1)
         }
         if let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
             content.cacheDisplay(in: content.bounds, to: bitmap)
@@ -407,9 +589,9 @@ import ClipboardCore
             content.layoutSubtreeIfNeeded()
             let thumbnail = try XCTUnwrap(imageView.image)
             XCTAssertLessThanOrEqual(max(thumbnail.width, thumbnail.height), 1024)
-            XCTAssertEqual(window.frame.width, 720, accuracy: 1)
-            XCTAssertEqual(window.frame.height, 440, accuracy: 1)
-            XCTAssertEqual(table.enclosingScrollView?.bounds.width ?? 0, content.bounds.width * 0.4, accuracy: 1)
+            XCTAssertEqual(window.frame.width, 972, accuracy: 1)
+            XCTAssertEqual(window.frame.height, 594, accuracy: 1)
+            XCTAssertEqual(table.enclosingScrollView?.bounds.width ?? 0, content.bounds.width * (432.0 / 972.0), accuracy: 1)
             XCTAssertTrue(imageView.bounds.contains(imageView.fittedImageRect))
             XCTAssertGreaterThan(imageView.fittedImageRect.height, 80)
             XCTAssertEqual(imageView.fittedImageRect.width / imageView.fittedImageRect.height, CGFloat(size.0) / CGFloat(size.1), accuracy: 0.01)
@@ -422,8 +604,8 @@ import ClipboardCore
         XCTAssertNil(imageView.image)
         window.setContentSize(NSSize(width: 900, height: 560))
         controller.open()
-        XCTAssertEqual(window.frame.width, 720, accuracy: 1)
-        XCTAssertEqual(window.frame.height, 440, accuracy: 1)
+        XCTAssertEqual(window.frame.width, 900, accuracy: 1)
+        XCTAssertEqual(window.frame.height, 560, accuracy: 1)
         controller.dismissPopup()
     }
 

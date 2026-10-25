@@ -57,6 +57,9 @@ import AppKit
 }
 @MainActor final class HistoryCell: NSTableCellView {
     let icon = NSImageView()
+    let thumbnail = NSImageView()
+    var representedID: UUID?
+    var thumbnailTask: Task<Void, Never>?
     let titleLabel = label("", size: 13)
     let metadataLabel = label("", size: 11, color: .secondaryLabelColor)
     let copyButton = ActionButton("", symbol: "doc.on.doc", action: {})
@@ -66,6 +69,12 @@ import AppKit
         icon.imageScaling = .scaleProportionallyDown
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([icon.widthAnchor.constraint(equalToConstant: 22), icon.heightAnchor.constraint(equalToConstant: 22)])
+        thumbnail.imageScaling = .scaleProportionallyDown
+        thumbnail.setAccessibilityLabel("Image thumbnail")
+        thumbnail.isHidden = true
+        thumbnail.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([thumbnail.widthAnchor.constraint(equalToConstant: 64), thumbnail.heightAnchor.constraint(equalToConstant: 48)])
+        let visual = row([icon, thumbnail], spacing: 0)
         let text = NSStackView(views: [titleLabel, metadataLabel]); text.orientation = .vertical; text.alignment = .leading; text.spacing = 4
         for (button, name) in [(previewButton, "Preview"), (copyButton, "Copy")] {
             button.setAccessibilityLabel(name); button.toolTip = name
@@ -75,13 +84,23 @@ import AppKit
             NSLayoutConstraint.activate([button.widthAnchor.constraint(equalToConstant: 36), button.heightAnchor.constraint(equalToConstant: 36)])
         }
         let actions = row([previewButton, copyButton], spacing: 4)
-        let content = row([icon, text, actions], spacing: 8)
-        content.distribution = .fill
-        copyButton.setContentHuggingPriority(.required, for: .horizontal)
-        copyButton.setContentCompressionResistancePriority(.required, for: .horizontal)
-        addSubview(content); content.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10), content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10), content.centerYAnchor.constraint(equalTo: centerYAnchor)])
+        for view in [visual, text, actions] {
+            addSubview(view)
+            view.translatesAutoresizingMaskIntoConstraints = false
+        }
+        NSLayoutConstraint.activate([
+            visual.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            visual.centerYAnchor.constraint(equalTo: centerYAnchor),
+            text.leadingAnchor.constraint(equalTo: visual.trailingAnchor, constant: 8),
+            text.trailingAnchor.constraint(equalTo: actions.leadingAnchor, constant: -8),
+            text.centerYAnchor.constraint(equalTo: centerYAnchor),
+            actions.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            actions.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
         text.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        actions.setContentHuggingPriority(.required, for: .horizontal)
+        actions.setContentCompressionResistancePriority(.required, for: .horizontal)
     }
     required init?(coder: NSCoder) { fatalError() }
 }

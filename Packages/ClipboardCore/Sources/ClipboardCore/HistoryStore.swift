@@ -7,6 +7,7 @@ public actor HistoryStore {
     public nonisolated var attachmentsURL: URL { rootURL.appendingPathComponent("Attachments", isDirectory: true) }
     let db: SQLiteConnection
     private var backupReaders = 0
+    private var countCache: (query: HistoryQuery, changes: Int64, count: Int)?
     static let columns = "id,kind,preview,created,modified,source,pinned,bytes,hash"
 
     public init(rootURL: URL) throws {
@@ -125,8 +126,10 @@ public actor HistoryStore {
             let words = query.search.split(whereSeparator: { $0.isWhitespace }).map { "\"" + $0.replacingOccurrences(of: "\"", with: "\"\"") + "\"*" }.joined(separator: " AND ")
             clauses.append("rowid IN (SELECT rowid FROM search WHERE search MATCH ?)"); values.append(.text(words))
         }
-        if let range = query.dateFilter.range(now: query.now) { clauses.append("created>=? AND created<?"); values += [.real(range.lowerBound.timeIntervalSince1970), .real(range.upperBound.timeIntervalSince1970)] }
+        if let range = query.day.flatMap({ DateFilter.today.range(now: $0) }) ?? query.dateFilter.range(now: query.now) { clauses.append("created>=? AND created<?"); values += [.real(range.lowerBound.timeIntervalSince1970), .real(range.upperBound.timeIntervalSince1970)] }
         if query.dateFilter == .pinned { clauses.append("pinned=1") }
+        if query.pinnedOnly { clauses.append("pinned=1") }
+        if let cutoff = query.capturedBefore { clauses.append("created<=?"); values.append(.real(cutoff.timeIntervalSince1970)) }
         if let kind = query.kind { clauses.append("kind=?"); values.append(.text(kind.rawValue)) }
         return (clauses.joined(separator: " AND "), values)
     }
@@ -134,12 +137,19 @@ public actor HistoryStore {
         try Task.checkCancellation()
         guard query.search.utf8.count <= 4096 else { throw CoreError.tooLarge }
         let (whereSQL, args) = Self.filter(query)
-        let count = try db.statement("SELECT count(*) FROM entries WHERE \(whereSQL)", args)
-        _ = try count.step()
+        let changes = sqlite3_total_changes64(db.handle)
+        let total: Int
+        if let cached = countCache, cached.query == query, cached.changes == changes {
+            total = cached.count
+        } else {
+            let count = try db.statement("SELECT count(*) FROM entries WHERE \(whereSQL)", args)
+            _ = try count.step(); total = count.int(0)
+            countCache = (query, changes, total)
+        }
         let q = try db.statement("SELECT \(Self.columns) FROM entries WHERE \(whereSQL) ORDER BY \(query.pinnedFirst ? "pinned DESC," : "")created DESC,id DESC LIMIT ? OFFSET ?", args + [.int(max(1, min(limit, 100))), .int(max(offset, 0))])
         var entries: [ClipboardEntrySummary] = []
         while try q.step() { try Task.checkCancellation(); entries.append(try Self.summary(q)) }
-        return .init(entries: entries, totalCount: count.int(0), offset: offset)
+        return .init(entries: entries, totalCount: total, offset: offset)
     }
     public func orderedIDs(_ query: HistoryQuery) throws -> [UUID] {
         guard query.search.utf8.count <= 4096 else { throw CoreError.tooLarge }

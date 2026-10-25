@@ -11,6 +11,42 @@ import CSQLite
     private func location() -> URL { let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("Clipboard-Test-\(UUID().uuidString)"); roots.append(root); return root }
     private func store() throws -> HistoryStore { try HistoryStore(rootURL: location()) }
 
+    func testPinnedFilterAndCountCacheInvalidateAfterMutations() async throws {
+        let store = try store()
+        let first = try await store.insert(.plainText("first"))
+        var query = HistoryQuery()
+        query.pinnedOnly = true
+        let empty = try await store.page(query)
+        XCTAssertEqual(empty.totalCount, 0)
+        try await store.setPinned(first, pinned: true)
+        let pinned = try await store.page(query)
+        XCTAssertEqual(pinned.entries.map(\.id), [first])
+        XCTAssertEqual(pinned.totalCount, 1)
+        let token = try await store.markDeleted([first])
+        let deleted = try await store.page(query)
+        XCTAssertEqual(deleted.totalCount, 0)
+        try await store.undoDelete(token)
+        let restored = try await store.page(query)
+        XCTAssertEqual(restored.totalCount, 1)
+        try await store.setPinned(first, pinned: false)
+        let unpinned = try await store.page(query)
+        XCTAssertEqual(unpinned.totalCount, 0)
+    }
+    func testCaptureCutoffKeepsLaterPagesStable() async throws {
+        let store = try store()
+        let now = Date()
+        for index in 0..<105 { try await store.insert(.plainText("Item \(index)", date: now.addingTimeInterval(Double(index) - 200))) }
+        var query = HistoryQuery(now: now)
+        query.capturedBefore = now
+        let before = try await store.page(query, offset: 100)
+        try await store.insert(.plainText("New capture", date: now.addingTimeInterval(1)))
+        let after = try await store.page(query, offset: 100)
+        XCTAssertEqual(before.entries, after.entries)
+        XCTAssertEqual(after.totalCount, 105)
+        let live = try await store.page(.init())
+        XCTAssertEqual(live.totalCount, 106)
+    }
+
     func testCombinedEditingPreservesOriginalHistoryAndReverts() async throws {
         let store = try store()
         let first = try await store.insert(.plainText("First"))
@@ -111,6 +147,23 @@ import CSQLite
         drafts.remove(ids[0]); try drafts.set("extra", for: ids[4], original: "")
         try drafts.set("same", for: ids[4], original: "same"); XCTAssertNil(drafts.text(for: ids[4]))
     }
+    func testSpecificDayIncludesStartAndExcludesNextMidnight() async throws {
+        let store = try store()
+        let calendar = Calendar.current
+        let day = try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: calendar.startOfDay(for: Date())))
+        let next = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: day))
+        let included = try await store.insert(.plainText("At midnight", date: day))
+        try await store.insert(.plainText("Before", date: day.addingTimeInterval(-1)))
+        try await store.insert(.plainText("Next day", date: next))
+        var query = HistoryQuery()
+        query.day = day
+        let page = try await store.page(query)
+        XCTAssertEqual(page.totalCount, 1)
+        XCTAssertEqual(page.entries.map(\.id), [included])
+        let ids = try await store.orderedIDs(query)
+        XCTAssertEqual(ids, [included])
+    }
+
     func testDateFiltersAcrossDaylightSaving() throws {
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "America/New_York")!
         let now = calendar.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 15))!
