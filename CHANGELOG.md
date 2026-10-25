@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.7] — 2026-10-25
+
+- Fix stretched row containers that left large gaps after image thumbnails and short text icons; keep Preview and Copy aligned to the trailing edge.
+- Add spacing regression coverage across row widths, text lengths, and reused thumbnail/icon states.
+
 ## [1.0.6] — 2026-10-25
 
 - Default to Today with previous/next-day navigation and access to All history.

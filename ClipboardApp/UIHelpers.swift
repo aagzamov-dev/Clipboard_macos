@@ -75,6 +75,7 @@ import AppKit
         thumbnail.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([thumbnail.widthAnchor.constraint(equalToConstant: 64), thumbnail.heightAnchor.constraint(equalToConstant: 48)])
         let visual = row([icon, thumbnail], spacing: 0)
+        visual.setHuggingPriority(.required, for: .horizontal)
         let text = NSStackView(views: [titleLabel, metadataLabel]); text.orientation = .vertical; text.alignment = .leading; text.spacing = 4
         for (button, name) in [(previewButton, "Preview"), (copyButton, "Copy")] {
             button.setAccessibilityLabel(name); button.toolTip = name
@@ -84,6 +85,7 @@ import AppKit
             NSLayoutConstraint.activate([button.widthAnchor.constraint(equalToConstant: 36), button.heightAnchor.constraint(equalToConstant: 36)])
         }
         let actions = row([previewButton, copyButton], spacing: 4)
+        actions.setHuggingPriority(.required, for: .horizontal)
         for view in [visual, text, actions] {
             addSubview(view)
             view.translatesAutoresizingMaskIntoConstraints = false

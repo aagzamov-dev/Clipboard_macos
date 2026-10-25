@@ -135,6 +135,9 @@ import ClipboardCore
                     let copy = cell.copyButton.convert(cell.copyButton.bounds, to: cell)
                     let preview = cell.previewButton.convert(cell.previewButton.bounds, to: cell)
                     let title = cell.titleLabel.convert(cell.titleLabel.bounds, to: cell)
+                    let visual = showsThumbnail ? cell.thumbnail : cell.icon
+                    let visualFrame = visual.convert(visual.bounds, to: cell)
+                    XCTAssertEqual(title.minX + cell.titleLabel.alignmentRectInsets.left, visualFrame.maxX + 8, accuracy: 1)
                     XCTAssertEqual(copy.maxX, width - 10, accuracy: 1)
                     XCTAssertLessThanOrEqual(preview.maxX, copy.minX)
                     XCTAssertLessThanOrEqual(title.maxX, preview.minX)

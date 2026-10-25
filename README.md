@@ -4,7 +4,7 @@ A small, native clipboard manager for macOS. Find what you copied, edit it, and 
 
 **macOS 14+ · Apple Silicon & Intel · Swift + AppKit · MIT**
 
-[Download v1.0.6](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.6) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
+[Download v1.0.7](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.7) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
 
 ![Clipboard with an editable combined preview](docs/screenshots/text-preview.png)
 
@@ -34,7 +34,7 @@ Built with AppKit and system SQLite. [Sparkle](https://sparkle-project.org) hand
 
 ## Install
 
-1. Download **Clipboard-v1.0.6-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.6).
+1. Download **Clipboard-v1.0.7-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.7).
 2. Open it and drag **Clipboard.app** into **Applications**. A ZIP is also available.
 3. Launch Clipboard and choose **Start local history**. Recording starts automatically on future launches.
 
