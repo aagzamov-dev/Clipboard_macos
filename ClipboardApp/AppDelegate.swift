@@ -12,6 +12,8 @@ import ClipboardCore
     private var paste: PasteCoordinator?
     private var pasteCheck: PasteCheckController?
     private var cleanupTimer: Timer?
+    private var pauseDeadline: Date?
+    private var pauseTimer: Timer?
     private var manuallyPaused = false
     private var blocked: MonitorState?
     private var suspended = Set<String>()
@@ -41,7 +43,7 @@ import ClipboardCore
             let store = try await Task.detached(priority: .userInitiated) { try HistoryStore(rootURL: root) }.value
             self.store = store
             let settings = SettingsStore(persistent: !fixtureMode); self.settings = settings
-            let monitor = ClipboardMonitor(store: store, onState: { [weak self] state in self?.monitorChanged(state) }, onCapture: { [weak self] in if self?.history?.window?.isVisible == true { self?.history?.refresh() } }, onError: { [weak self] message in self?.history?.showNotice(message) })
+            let monitor = ClipboardMonitor(store: store, onState: { [weak self] state in self?.monitorChanged(state) }, onCapture: { [weak self] in self?.history?.historyCaptured() }, onError: { [weak self] message in self?.history?.showNotice(message) })
             self.monitor = monitor
             let paste = PasteCoordinator(sessionToken: monitor.sessionToken, testMode: fixtureMode); self.paste = paste
             let history = HistoryWindowController(store: store, settings: settings, paste: paste); self.history = history
@@ -69,6 +71,7 @@ import ClipboardCore
             }
             if !fixtureMode { preferences.onRestart = { [weak self] in self?.restart() } }
             paste.onStatusChanged = { [weak preferences] in preferences?.refreshPermissionStatus() }
+            history.onOpen = { [weak monitor] in monitor?.captureNow() }
             history.onToggleRecording = { [weak self] in self?.togglePause() }
             history.onPasteSettings = { [weak preferences] in preferences?.openPasteSettings() }
             history.onSettings = { [weak preferences] in preferences?.open() }
@@ -119,6 +122,13 @@ import ClipboardCore
         let menu = NSMenu()
         menu.addItem(withTitle: "Open Clipboard", action: #selector(openHistory), keyEquivalent: "").target = self
         pauseItem = menu.addItem(withTitle: "Pause monitoring", action: #selector(pause), keyEquivalent: ""); pauseItem?.target = self
+        let timedPause = NSMenuItem(title: "Pause for…", action: nil, keyEquivalent: "")
+        let durations = NSMenu()
+        for minutes in [5, 15, 60] {
+            let choice = durations.addItem(withTitle: "\(minutes) minutes", action: #selector(pauseFor(_:)), keyEquivalent: "")
+            choice.tag = minutes; choice.target = self
+        }
+        timedPause.submenu = durations; menu.addItem(timedPause)
         menu.addItem(.separator())
         menu.addItem(withTitle: "Permissions…", action: #selector(openPermissions), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
@@ -157,6 +167,7 @@ import ClipboardCore
         switch settings?.value.appearance { case "Light": NSApp.appearance = NSAppearance(named: .aqua); case "Dark": NSApp.appearance = NSAppearance(named: .darkAqua); default: NSApp.appearance = nil }
     }
     private func applyCaptureState() {
+        if let pauseDeadline, pauseDeadline <= Date() { self.pauseDeadline = nil; manuallyPaused = false; pauseTimer?.invalidate(); pauseTimer = nil }
         guard !fixtureMode, let settings else { return }
         let state: MonitorState = !settings.value.onboardingComplete || manuallyPaused ? .manuallyPaused : !suspended.isEmpty ? .suspended : blocked ?? .running
         monitor?.configure(settings: settings.value, state: state, foregroundBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
@@ -172,8 +183,21 @@ import ClipboardCore
         statusItem?.button?.toolTip = running ? "Clipboard" : "Clipboard — monitoring paused"
         pauseItem?.title = running || currentState == .suspended ? "Pause monitoring" : "Resume monitoring"
         history?.updateRecordingState(currentState)
+        if manuallyPaused, let pauseDeadline {
+            statusItem?.button?.toolTip = "Clipboard — paused until \(pauseDeadline.formatted(date: .omitted, time: .shortened))"
+        }
     }
+    @objc private func pauseFor(_ sender: NSMenuItem) {
+        guard settings?.value.onboardingComplete == true else { showOnboarding(); return }
+        pauseTimer?.invalidate()
+        pauseDeadline = Date().addingTimeInterval(Double(sender.tag) * 60)
+        manuallyPaused = true
+        pauseTimer = Timer.scheduledTimer(timeInterval: Double(sender.tag) * 60, target: self, selector: #selector(endTimedPause), userInfo: nil, repeats: false)
+        applyCaptureState()
+    }
+    @objc private func endTimedPause() { applyCaptureState() }
     private func togglePause() {
+        pauseTimer?.invalidate(); pauseTimer = nil; pauseDeadline = nil
         if settings?.value.onboardingComplete != true { showOnboarding(); return }
         if currentState == .running || currentState == .suspended { manuallyPaused = true } else { manuallyPaused = false; blocked = nil }
         applyCaptureState()
@@ -236,5 +260,5 @@ import ClipboardCore
         if quitting || history?.hasUnsavedEdits != true { return .terminateNow }
         quit(); return .terminateCancel
     }
-    func applicationWillTerminate(_ notification: Notification) { shortcut?.invalidate(); cleanupTimer?.invalidate() }
+    func applicationWillTerminate(_ notification: Notification) { shortcut?.invalidate(); cleanupTimer?.invalidate(); pauseTimer?.invalidate() }
 }

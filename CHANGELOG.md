@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.6] — 2026-10-25
+
+- Default to Today with previous/next-day navigation and access to All history.
+- Keep browsing and drafts stable during capture; retain bounded summary caches, prefetch pages, incrementally insert recent rows, and cache matching counts.
+- Check for new clipboard content on opening and remember popup frames per display.
+- Include the larger popup layout and bounded row image thumbnails.
+- Add plain-text paste, Command-1–9 quick paste, type-to-search, a Pinned filter, readable app names, draft text cleanup, and timed recording pauses.
+- Preserve existing history, preferences, and the signed-update trust key; increase the bundle build to 9.
+
+## [1.0.5] — 2026-10-24
+
+- Enable automatic paste by default and remove the separate enable switch and confirmation while retaining macOS permission checks.
+
 ## [1.0.4] — 2026-10-24
 
 - Add Restart Clipboard to permission controls, protect unsaved edits, and reopen the same app directly to Permissions after the old process exits.

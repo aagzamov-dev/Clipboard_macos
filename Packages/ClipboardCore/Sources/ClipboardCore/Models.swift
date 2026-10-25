@@ -169,6 +169,9 @@ public struct HistoryQuery: Equatable, Sendable {
     public var dateFilter: DateFilter = .all
     public var kind: ClipboardKind?
     public var pinnedFirst: Bool = false
+    public var pinnedOnly: Bool = false
+    public var capturedBefore: Date?
+    public var day: Date?
     public var now: Date = Date()
     public init(search: String = "", dateFilter: DateFilter = .all, kind: ClipboardKind? = nil, pinnedFirst: Bool = false, now: Date = Date()) {
         self.search = search; self.dateFilter = dateFilter; self.kind = kind; self.pinnedFirst = pinnedFirst; self.now = now

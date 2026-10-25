@@ -4,7 +4,7 @@ A small, native clipboard manager for macOS. Find what you copied, edit it, and 
 
 **macOS 14+ · Apple Silicon & Intel · Swift + AppKit · MIT**
 
-[Download v1.0.5](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.5) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
+[Download v1.0.6](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.6) · [All releases](https://github.com/aagzamov-dev/Clipboard_macos/releases) · [Report an issue](https://github.com/aagzamov-dev/Clipboard_macos/issues)
 
 ![Clipboard with an editable combined preview](docs/screenshots/text-preview.png)
 
@@ -13,11 +13,14 @@ Native app screenshots with example clipboard content.
 ## Quiet by design
 
 - **A compact popup.** Open with **⌥⌘V** or the menu-bar icon. Click outside to dismiss.
-- **Useful previews.** A 40% list and 60% preview in a 720 × 440-point window. Images fit without stretching the window.
+- **Useful previews.** A compact list with an optional side-by-side preview and a remembered window size. Images fit without stretching the window.
 - **Paste in one click.** Click a row to paste; use the larger right-side Preview and Copy icons for those actions. Automatic paste must be enabled in Permissions.
 - **Edit immediately.** Click Preview and start typing. Copy uses your draft; **⌘S** saves it to history.
 - **Copy several entries.** Command-click or Shift-click, edit the combined text, then Copy. Original entries stay unchanged.
-- **Find and keep.** Search, filter by date/type, and pin favorites. Unpinned history expires after 30 days by default.
+- **Find and keep.** Open to Today by default. Use the day arrows for Yesterday and earlier dates, or choose All history. Type from the list to search the selected date range, filter by type or Pinned, and keep favorites. Unpinned history expires after 30 days by default.
+- **Quick text tools.** Paste without formatting, trim whitespace, remove blank lines, or change case from Text actions. Cleanup changes the draft; Save explicitly to update history.
+- **Stable browsing.** New captures wait behind a Refresh button while you browse older entries or edit. The popup remembers its size and position per display.
+- **Timed pause.** Right-click the menu-bar icon and choose Pause for 5, 15, or 60 minutes.
 - **Your Mac, your history.** No accounts, analytics, or cloud sync. Clipboard contents stay on your Mac. Optional password-encrypted backups.
 
 Built with AppKit and system SQLite. [Sparkle](https://sparkle-project.org) handles authenticated app updates. History loads in bounded pages; image previews downsample to a 1024-pixel edge and release when dismissed. Performance measurements and remaining compatibility checks are documented in [Verification](VERIFICATION.md).
@@ -31,7 +34,7 @@ Built with AppKit and system SQLite. [Sparkle](https://sparkle-project.org) hand
 
 ## Install
 
-1. Download **Clipboard-v1.0.5-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.5).
+1. Download **Clipboard-v1.0.6-universal.dmg** from the [release](https://github.com/aagzamov-dev/Clipboard_macos/releases/tag/v1.0.6).
 2. Open it and drag **Clipboard.app** into **Applications**. A ZIP is also available.
 3. Launch Clipboard and choose **Start local history**. Recording starts automatically on future launches.
 
@@ -76,6 +79,9 @@ Downloads and the update feed are verified with the app’s update-signing key b
 | ↑ / ↓, ⇧↑ / ⇧↓ | Navigate or extend selection |
 | ⌘C / ⌘⇧C | Copy from the list / copy the current entry or combined draft |
 | Enter / ⌘Enter | Paste one selected entry / the current draft |
+| ⇧Enter / ⌘⇧Enter | Paste plain text from the list / current text draft |
+| ⌘1–⌘9 | Paste the corresponding first nine results from the list |
+| Type / ↓ in search | Start searching from the list / return to list navigation |
 | ⌘S | Save an individual text draft |
 | ⌘P | Pin or unpin one entry |
 | ⌘F | Search |

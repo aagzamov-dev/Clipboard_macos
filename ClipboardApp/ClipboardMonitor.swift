@@ -56,6 +56,12 @@ final class ClipboardMonitor: @unchecked Sendable {
             foregroundExcluded = excluded; restart()
         }
     }
+    func captureNow() {
+        queue.async { [self] in
+            guard requestedState == .running, timer != nil else { return }
+            poll()
+        }
+    }
     private func poll() {
         guard !busy, !foregroundExcluded else { return }
         let board = pasteboard

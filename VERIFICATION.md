@@ -90,3 +90,17 @@ Six targeted regression tests exercise button routing/busy state, parent validat
 The internal automatic-paste preference, enable switch, and confirmation dialog were removed. History-item paste now checks macOS event-posting permission directly. Legacy settings containing `automaticPaste: false` decode without losing other preferences; that obsolete field is omitted on subsequent settings writes. Copy and private fixture behavior remain unchanged.
 
 Local verification passed 28 core and 31 platform tests and the Release app build. Coverage includes legacy preference decoding, absence of the enable switch, denied/revoked access, and single simulated event dispatch. No real paste event was sent to user apps. Release CI remains responsible for universal packaging, fixture UI-test compilation, and signed-update verification.
+
+## Local responsiveness and convenience improvements (2026-10-25)
+
+Capture refresh supports incremental leading-row insertion, while browsing/editing defers new captures until an explicit refresh. A capture-time cutoff keeps subsequent page offsets stable during incoming copies. The bounded summary cache survives ordinary dismissal; image previews still release. Adjacent pages prefetch near page boundaries, and matching counts reuse a query cache invalidated by SQLite write counts. Opening requests an immediate capture check without increasing background polling. Popup frames persist per display and preview mode.
+
+Added plain-text paste, list quick-paste shortcuts, type-to-search, a Pinned filter, readable source names, draft-only text cleanup, and menu-bar timed pause. Existing local layout and image-thumbnail changes were preserved; thumbnail images now retain an explicit bitmap representation to avoid Retina representation expansion.
+
+Validation: 30 core and 36 platform tests pass, including stable paging during new captures, pinned count invalidation, incremental selection preservation, retained summary cache, plain-text paste preserving rich history, and deferred capture while editing. Native text/image/bulk fixture renders were produced; the text fixture was visually inspected. Tests use private pasteboards and do not send paste events to user applications. These results do not establish Instruments latency, scrolling frame-time, memory, or energy targets, or live paste acceptance by other apps.
+
+## Daily browsing (2026-10-25)
+
+The popup defaults to Today on initialization and each reopening. Previous/next-day controls navigate Yesterday and any earlier calendar day; forward navigation stops at Today. The existing dropdown retains All history and other ranges. Explicit-day queries use inclusive start/exclusive next-midnight bounds against the existing date index, shared by paging and ordered selection. Calendar arithmetic handles local day lengths. This filters display only and does not delete older entries.
+
+Validation: 31 core and 37 platform tests pass, including exact midnight bounds, existing daylight-saving coverage, Today → Yesterday → earlier day → Today navigation, All history access, and resetting to Today on reopening. Native popup renders include the new day controls. No additional performance improvement is claimed without measurement.
